@@ -16,12 +16,21 @@ import {
   updateLastSynced,
   loadRegistry,
 } from '../types/registry.js';
+import {
+  setClientCredentials,
+  type GitHost,
+} from '../types/credentials.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
 
 export interface RegisterClientOptions {
   contextUrl: string;
   name?: string;
   force?: boolean;
+  // Git API credentials (para discovery en /init-context v2)
+  gitToken?: string;
+  gitHost?: string;
+  gitGroup?: string;
+  gitBaseUrl?: string;
 }
 
 function runGit(cmd: string, cwd?: string): string {
@@ -100,6 +109,23 @@ export async function runRegisterClient(
   });
 
   printOk(`Cliente registrado en ~/.devflow/registry.yml`);
+
+  // Guardar credenciales git si se proveyeron
+  if (opts.gitToken && opts.gitGroup) {
+    const host = (opts.gitHost ?? 'gitlab') as GitHost;
+    const baseUrl = opts.gitBaseUrl ??
+      (host === 'github' ? 'https://api.github.com' : 'https://gitlab.com');
+    setClientCredentials(slug, {
+      git_token: opts.gitToken,
+      git_host: host,
+      git_base_url: baseUrl,
+      git_group: opts.gitGroup,
+    });
+    printOk(`Credenciales git guardadas en ~/.devflow/credentials.yml (chmod 600)`);
+    printDim(`  Host: ${host}  ·  Grupo: ${opts.gitGroup}`);
+  } else if (opts.gitToken || opts.gitGroup) {
+    printWarn(`Para guardar credenciales git se necesitan tanto --git-token como --git-group`);
+  }
 
   // Mostrar resumen del catálogo si existe
   const catalogPath = path.join(cacheDir, '.devflow-context', 'app-catalog.md');

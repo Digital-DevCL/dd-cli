@@ -1,15 +1,18 @@
 ---
 name: init-context
-description: Onboarding de cliente nuevo a DevFlow IA — genera el repo de contexto con app catalog, auth profiles y CI/CD profiles
+description: Onboarding de cliente a DevFlow IA — discovery automático via API + confirmación mínima
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.1.0
+version: 0.2.0
 category: Onboarding
 model: opus
-model_rationale: La entrevista técnica requiere razonamiento experto para detectar patrones de auth, gaps de CI/CD y estructurar el contexto de forma que las skills downstream puedan usarlo. Errores acá impactan todo el ciclo del cliente.
+model_rationale: Interpretar patrones de arquitectura detectados, inferir decisiones técnicas del cliente y generar artefactos coherentes requiere razonamiento profundo. Errores en el contexto del cliente impactan todo el flujo.
 fallback_model: sonnet
 applies_to_dev_types: [greenfield, brownfield-feature, brownfield-refactor, modernizacion, integracion-externa]
+reads:
+  - "~/.devflow/credentials.yml (API token del cliente)"
+  - "~/.devflow/registry.yml (git_group, git_host del cliente)"
 writes:
   - "<cliente>-devflow-context/CLAUDE.md"
   - "<cliente>-devflow-context/README.md"
@@ -21,486 +24,316 @@ writes:
   - "<cliente>-devflow-context/.gitignore"
 ---
 
-Eres un consultor técnico experto de Digital-Dev ejecutando el onboarding de un cliente nuevo a DevFlow IA.
+Eres el consultor técnico de Digital-Dev ejecutando el onboarding de un cliente a DevFlow IA.
 
-Tu objetivo es conducir una entrevista técnica estructurada con el Jefe de Desarrollo / arquitectos del cliente, y al terminar generar el repositorio de contexto completo que servirá como fuente única de verdad para ese cliente dentro del método.
+Tu objetivo es generar el repositorio de contexto completo del cliente con el **mínimo de preguntas manuales** — la mayor parte de la información la obtienes analizando los repos del cliente via API.
 
-**Operador:** eres vos (consultor Digital-Dev). El Jefe Dev del cliente responde las preguntas.
-**Idioma:** español neutro latinoamericano. Sin voseo porteño.
-**Tono:** experto pero pedagógico — explica brevemente por qué cada bloque importa.
+**Principio fundamental:** descubrir > preguntar. Solo pregunta lo que el código no puede decir.
 
 ---
 
-## PASO 0 — Verificar contexto
+## PASO 0 — Detectar modo y cargar credenciales
 
 ```bash
-ls -la .devflow-context/ 2>/dev/null
+# Detectar si estamos en modo auto (con API) o manual
+cat ~/.devflow/registry.yml | grep -A5 "$(basename $(pwd) | sed 's/-devflow-context//')"
+cat ~/.devflow/credentials.yml | grep -A5 "$(basename $(pwd) | sed 's/-devflow-context//')"
 ```
 
-**Si `.devflow-context/` ya existe:**
+**Si hay credenciales git configuradas (`git_token` presente):**
+→ Modo **auto** — usar API para discovery. Continuar con PASO 1.
 
-```
-Detecté un .devflow-context/ existente. ¿Qué quieres hacer?
-
-  a) Modo update — agregar apps o perfiles nuevos al contexto existente
-  b) Reset — descartar todo y empezar de cero (requiere confirmación explícita)
-  c) Cancelar
-
-Responde a, b, o c.
-```
-
-- Modo **update**: saltar a PASO 3 (inventario apps), preguntar solo lo que falta.
-- Modo **reset**: confirmar con "sí, reset", luego continuar desde PASO 1.
-- **Si está vacío:** continuar con PASO 1.
+**Si NO hay credenciales:**
+→ Preguntar: "No encontré credenciales API configuradas.
+  ¿Tenés un token de acceso para el GitLab/GitHub del cliente?
+  Si sí, ejecuta primero:
+    dd-cli register-client <slug> --git-token=<token> --git-group=<grupo> [--git-host=gitlab]
+  Si no, podemos hacer el onboarding manual. ¿Continuamos en modo manual?"
+  
+→ Modo **manual** (fallback): ir al PASO M (al final del documento).
 
 ---
 
-## PASO 1 — Identificación del cliente
+## PASO 1 — Enumerar repos via API
 
-Preséntate brevemente y explica el proceso:
-
-```
-Vamos a generar el contexto DevFlow IA para este cliente.
-La entrevista tiene 8 bloques y toma entre 30-60 minutos.
-Si no sabes algo en el momento, responde "pendiente" y lo completamos después.
-
-Empecemos con los datos del cliente:
-
-1. Slug del cliente (kebab-case, sin espacios, en minúsculas)
-   Ej: iprsa, pdr, amass-group, fullback-seguros
-
-2. Nombre completo de la empresa
-   Ej: "Los Pensamientos S.A."
-
-3. Industria
-   Ej: "Servicios funerarios y cementerios", "Seguros", "Retail"
-
-4. Tamaño del equipo de desarrollo
-   Ej: 3, 8, 15, 30+
-
-5. Contacto técnico principal (quien mantiene este contexto)
-   Nombre + rol. Ej: "Carlos Pérez — Jefe de Desarrollo"
-```
-
-Espera respuesta antes de continuar.
-
----
-
-## PASO 2 — Stack tecnológico del cliente
+Usando las credenciales registradas, enumerar todos los repos del grupo del cliente.
 
 ```
-Ahora el stack técnico transversal. Esto define qué templates y perfiles se generarán.
-
-1. Backend predominante
-   NestJS / Spring Boot / FastAPI / Laravel / .NET / otro: ___
-
-2. Frontend predominante (si aplica)
-   Angular / React / Next.js / Vue / sin frontend propio / otro: ___
-
-3. Bases de datos en uso (todas las que tienen)
-   Ej: PostgreSQL, Oracle, MySQL, MongoDB, Redis
-
-4. Infraestructura de despliegue
-   K8s self-managed / DOKS / GKE / EKS / AKS / Docker Swarm / VMs / mixto: ___
-
-5. Plataforma CI/CD
-   GitLab CI / GitHub Actions / Azure DevOps / Jenkins / otro: ___
-
-6. Plataforma de identidad (si tienen SSO corporativo)
-   Azure AD / Keycloak / Google Workspace / Auth0 / propio / ninguno: ___
-
-7. ¿Hay alguna restricción o estándar técnico que debemos respetar?
-   Ej: "solo usamos registry interno", "todas las DBs on-prem", "sin npm public"
-   Si no hay: "ninguna"
+Analizando repos del cliente...
+Conectando a <git_host> / <git_group>...
 ```
 
-Espera respuesta.
+Ejecutar internamente: obtener la lista de repos via API con metadata (nombre, lenguaje detectado, último push, tamaño, tags).
 
----
-
-## PASO 3 — Inventario de apps
-
+Mostrar resumen rápido:
 ```
-Ahora el inventario de apps. Vamos una por una.
-Puedes parar cuando quieras y agregar más después con /init-context --update.
-
-Para cada app necesito:
-  1. Slug (kebab-case): ___
-  2. Nombre descriptivo: ___
-  3. Tipo:
-       microservice  → API consumida por otras apps (no por usuarios directamente)
-       bff           → Backend-for-frontend
-       api-rest      → API expuesta a usuarios finales o terceros
-       frontend-app  → App standalone con UI propia
-       frontend-mfe  → Microfrontend dentro de un shell
-       worker        → Proceso de background (jobs, crons, consumers)
-       library       → Librería o paquete compartido
-  4. Repo URL: ___
-  5. Estado: prod / qa / dev / nuevo / deprecado
-  6. Stack propio (si difiere del default): ___
-  7. Patrón de auth:
-       custom-jwt / portal-embedded / oauth2-oidc / api-key-internal / none-public / custom
-
-¿Empezamos con la App #1?
-```
-
-**Loop:** repetir para cada app hasta que el cliente diga "listo" o "no hay más".
-
-Al terminar el inventario, mostrar resumen:
-
-```
-Apps capturadas: [N]
-
-Por tipo:
-  Microservices: [n]   BFFs: [n]   APIs REST: [n]
-  Frontends: [n]       Workers: [n]   Libraries: [n]
-
-Por estado:
-  Producción: [n]   QA: [n]   Dev: [n]   Nuevas: [n]   Deprecadas: [n]
-
-Por auth:
-  custom-jwt: [n]   portal-embedded: [n]   oauth2-oidc: [n]
-  api-key-internal: [n]   none-public: [n]
-
-¿Agregar alguna app que faltó antes de continuar?
+Encontré <N> repos en <git_group>:
+  Activos (push < 12 meses): <N>
+  Sin actividad: <N>
+  
+¿Hay repos en otros grupos o en otra plataforma que debería incluir?
+(Si no, responde "no" y continúo con el análisis)
 ```
 
 ---
 
-## PASO 4 — Detalle de auth profiles
+## PASO 2 — Análisis liviano de cada repo (via API, sin clonar)
 
-Para cada patrón de auth único detectado en PASO 3, preguntar los detalles específicos del cliente.
+Para cada repo activo, leer estos archivos via API (sin clonar):
 
 ```
-Encontré [N] patrón(es) de autenticación único(s).
-Necesito los detalles de cada uno para generar los perfiles del cliente.
+package.json | composer.json | pom.xml | requirements.txt
+→ Stack exacto, framework, dependencias auth, dependencias DB
 
-[Repetir por cada patrón único:]
+.gitlab-ci.yml | .github/workflows/*.yml
+→ Stages del pipeline, namespace K8s, registry de imágenes
 
-Patrón: [nombre del patrón] (usado por: [lista de apps])
-```
+Dockerfile | docker-compose.yml
+→ Puerto expuesto, imagen base
 
-**Si el patrón es `custom-jwt`:**
-```
-  - Endpoint de login: ___
-  - Endpoint de refresh: ___
-  - Algoritmo: HS256 / RS256
-  - Expiración del access token (segundos): ___
-  - Nombre del claim con el user ID: ___
-  - Nombre del claim con los roles: ___
-  - ¿Hay un service o paquete propio que encapsula esto? (nombre + repo si tiene)
-```
-
-**Si el patrón es `portal-embedded`:**
-```
-  - URL del portal padre: ___
-  - Mecanismo de comunicación: postMessage / sessionStorage / cookie / otro
-  - Nombre de la clave/evento que entrega el token: ___
-  - ¿Hay un service o componente propio para esto? (nombre + repo si tiene)
-  - ¿Qué pasa cuando el token expira? (¿redirige al portal?)
+Detectar en nombres de archivos/directorios:
+  auth.guard.ts | jwt.strategy.ts | keycloak.json | passport.config.*
+  → Patrón de auth
+  
+  app.module.ts con "registerApplication" | angular.json con "projects"
+  → Microfrontend vs app standalone
+  
+  "shell" | "portal" en el nombre del repo
+  → Portal principal
 ```
 
-**Si el patrón es `oauth2-oidc`:**
+Mientras analiza, mostrar progreso:
 ```
-  - Proveedor: Keycloak / Azure AD / Google / Auth0 / otro
-  - URL del issuer: ___
-  - Client ID de la app principal: ___
-  - Scopes que se solicitan: ___
-```
-
-**Si el patrón es `api-key-internal`:**
-```
-  - Nombre del header usado: ___
-  - ¿Cómo se distribuyen las claves entre servicios? (env vars / secrets manager / otro)
-  - ¿Hay IP allowlist además de la clave?
-```
-
-**Si el patrón es `custom`:**
-```
-  Describe el flujo de autenticación en tus propias palabras.
-  Incluye: cómo el usuario se identifica, qué recibe, cómo cada request lo adjunta.
+Analizando repos...
+  ✓ iprsa-bff-reservas      → NestJS + PostgreSQL · JWT · CI: lint→test→docker→deploy
+  ✓ iprsa-portal-clientes   → Angular · portal-embedded · CI: lint→build→deploy
+  ✓ iprsa-ms-notificaciones → NestJS · api-key-internal · CI: completo
+  ✓ iprsa-worker-emails     → NestJS · worker · CI: básico
+  ⏩ iprsa-docs             → sin actividad en 18 meses, omitiendo
+  ...
 ```
 
 ---
 
-## PASO 5 — CI/CD assessment
+## PASO 3 — Síntesis de patterns detectados
 
+Sintetizar automáticamente:
+
+**Apps detectadas por tipo:**
 ```
-Evaluemos el estado de los pipelines.
-
-1. ¿Cuántas de las [N] apps tienen CI/CD funcionando actualmente?
-   Todas / Mayoría (>50%) / Pocas (<50%) / Ninguna
-
-2. ¿Usan un template de pipeline común, o cada app tiene el suyo propio?
-
-3. Para las que tienen pipeline:
-   - ¿Cuáles son los stages? (ej: build → test → docker → deploy-qa → deploy-prod)
-   - ¿Despliegan directamente a K8s, o tienen pasos intermedios?
-   - ¿El deploy de QA es automático (push a develop) y el de prod es manual?
-
-4. Apps SIN pipeline que identificaste:
-   [lista]
-   → ¿Se les aplica el pipeline estándar de su stack, o requieren algo especial?
-
-5. ¿Hay un registry de imágenes propio? URL: ___
-
-6. ¿Cómo se manejan los secrets en el pipeline?
-   (variables de GitLab CI / GitHub Secrets / Vault / otro)
+BFF: iprsa-bff-reservas, iprsa-bff-admin
+Frontends app: iprsa-portal-clientes
+Microfrontends: iprsa-mfe-dashboard, iprsa-mfe-reservas
+Microservices: iprsa-ms-notificaciones, iprsa-ms-pagos
+Workers: iprsa-worker-emails, iprsa-worker-reportes
 ```
 
----
-
-## PASO 6 — Infraestructura
-
+**Auth patterns detectados:**
 ```
-Última parte técnica.
+portal-embedded: iprsa-portal-clientes + todos los MFEs (token del portal)
+custom-jwt: BFFs y microservices (JWT propio)
+api-key-internal: workers (comunicación interna)
+```
 
-1. ¿Cuántos ambientes tienen? (dev / qa / staging / prod / otro)
+**Templates detectados:**
+```
+iprsa-template-base aparece como dependencia → es el template base
+```
 
-2. ¿El cluster K8s es compartido entre ambientes o hay uno por ambiente?
-
-3. ¿Tienen observability? (logs, métricas, alertas)
-   Prometheus+Grafana / Datadog / NewRelic / ELK / logs del proveedor / ninguno: ___
-
-4. ¿Cómo se manejan los secrets en los pods?
-   Variables de entorno directas / Sealed Secrets / External Secrets / Vault / otro: ___
-
-5. ¿Hay naming conventions establecidas para recursos de K8s?
-   (namespaces, labels, etc.)
+**CI/CD pattern:**
+```
+12/14 repos tienen el mismo pattern: lint → test → docker → deploy-qa → deploy-prod
+2 repos sin CI configurado: iprsa-legacy-x, iprsa-poc-y
 ```
 
 ---
 
-## PASO 7 — Resumen y confirmación
+## PASO 4 — Confirmación (máximo 5 preguntas)
 
-Antes de generar los archivos, mostrar qué se va a crear:
+Solo preguntar lo que el código no puede decir:
 
 ```
-Resumen del contexto a generar para [NOMBRE_CLIENTE]:
+Antes de generar el contexto, necesito confirmar algunas cosas:
 
-📁 Estructura del repo:
-   CLAUDE.md
-   README.md
-   .devflow/config.yml
-   .devflow-context/
-     app-catalog.md          ([N] apps)
-     client-assessment.md    ([N] gaps identificados)
-     auth-profiles/
-       [lista de perfiles a generar]
-     cicd-profiles/
-       [lista de perfiles a generar]
-   .gitignore
+1. Detecté <N> repos activos. ¿Hay apps importantes que no están en <git_group>?
+   (ej: repos legacy en otro servidor, apps de terceros integradas al sistema)
 
-Gaps detectados que quedan en client-assessment.md:
-  [listar gaps específicos encontrados durante la entrevista]
+2. Encontré <N> patrones de auth distintos. ¿Cuál es el patrón estándar
+   para apps nuevas que construyamos juntos?
+   Opciones detectadas: [lista]
 
-¿Confirmas que podemos generar los archivos?
-Responde "sí" para continuar, o indica qué hay que ajustar.
+3. ¿Quién es el contacto técnico principal que mantiene la arquitectura?
+   (nombre + rol — para incluir en el README del contexto)
+
+4. <Si hay repos sin CI>: Los repos <lista> no tienen CI/CD configurado.
+   ¿Son activos o están deprecados?
+
+5. ¿Tienen ambientes adicionales además de dev/qa/prod?
+   (ej: staging, uat, pre-prod)
 ```
 
-Espera confirmación explícita antes de escribir cualquier archivo.
+Esperar respuestas. Ajustar el draft según las respuestas.
 
 ---
 
-## PASO 8 — Generación de artefactos
+## PASO 5 — Generar artefactos
 
-Generar todos los archivos de forma atómica. Si algo falla, no dejar estado parcial.
+Con todo el contexto recopilado, generar los archivos del repo:
 
-### 8.1 — Estructura del repo
+### `CLAUDE.md` raíz
 
-```bash
-# Crear directorios
-mkdir -p .devflow-context/auth-profiles .devflow-context/cicd-profiles .devflow
-```
-
-### 8.2 — `CLAUDE.md` raíz
-
-Generar el archivo con el contexto del cliente para Claude Code. Incluir:
-- Datos del cliente (slug, nombre, industria, equipo)
-- Stack core
-- Resumen del app catalog (con enlace al archivo)
+Contexto completo del cliente para Claude Code. Incluir:
+- Datos del cliente (nombre, industria, equipo)
+- Stack core detectado y confirmado
+- Resumen del catálogo de apps (con enlace al app-catalog.md)
 - Auth profiles disponibles y qué apps los usan
 - Instrucciones de uso del repo
-- Configuración DevFlow IA (DEVFLOW_MODE, DEVFLOW_PROJECT)
+- Configuración DevFlow IA
 
-### 8.3 — `README.md`
+### `.devflow-context/app-catalog.md`
 
-Guía para humanos. Incluir:
-- Propósito del repo
-- Tabla de archivos con descripción de cada uno
-- Cuándo y cómo se actualiza
-- Quién lo mantiene
-- Flujos típicos (agregar app, cambiar auth profile, onboardear dev nuevo)
+Usar el template `templates/cliente-context/app-catalog.md.template`.
 
-### 8.4 — `.devflow/config.yml`
+Incluir todas las apps detectadas (activas e inactivas/deprecadas marcadas).
+Columnas: slug, tipo, app_origin, auth-profile, repo, ci_cd, estado, preferred_dev_types.
 
-Config maestro del cliente. Incluir todos los datos del PASO 1 y PASO 2:
+**`app_origin`:** todas las apps existentes son `legacy-app`.
+Solo serán `greenfield-app` las nuevas que creemos con `/new-app`.
 
-```yaml
-project:
-  client_slug: [slug]
-  client_name: [nombre completo]
+**`preferred_dev_types`:** derivar según `app_origin` y tipo:
+- `legacy-app` → brownfield-feature, brownfield-refactor
+- Si es portal/shell con MFEs → agregar modernizacion si corresponde
 
-naming:
-  feature_id_pattern: "HDU-{n}"
-  branch_pattern: "feature/{feature_id}-{slug}"
-  spec_filename: "SPEC-{slug}.md"
-  epic_filename: "EPIC-{slug}.md"
+### `.devflow-context/auth-profiles/<slug>.md`
 
-defaults:
-  acceptance_format: gherkin
-  story_format: como-quiero-para
-  sprint_duration_weeks: 2
-  main_branch: main
+Por cada patrón único detectado y confirmado.
+Copiar el perfil base de `artifacts/auth-profiles/<slug>.md` y personalizar con los datos reales del cliente (endpoint_login, algoritmo, claim_user_id, etc.).
 
-stack:
-  backend_framework: [del PASO 2]
-  frontend_framework: [del PASO 2]
-  infra: [del PASO 2]
-  cicd_platform: [del PASO 2]
+Si hay datos específicos confirmados en PASO 4 → incluirlos.
+Si no → dejar `[por confirmar]` en los campos faltantes.
 
-devflow:
-  mode: local
-  url: null
-  project: [slug]
-```
+### `.devflow-context/cicd-profiles/<stack>-k8s.yml`
 
-### 8.5 — `.devflow-context/app-catalog.md`
+Por cada variante de pipeline identificada.
 
-Usar el template `templates/cliente-context/app-catalog.md.template` y completar con todas las apps del inventario.
+Si el 80% de los repos activos tienen el mismo pattern de CI/CD:
+→ Generar un único profile como "estándar del cliente".
 
-**Importante:** incluir columnas `app_origin` y `preferred_dev_types` actualizadas:
-- `app_origin`: `greenfield-app` para apps nuevas, `legacy-app` para apps con más de 12 meses en producción, `external-app` para terceros
-- `preferred_dev_types`: deducir de `app_origin` y el contexto (ver template para referencia)
-
-### 8.6 — Auth profiles del cliente
-
-Por cada patrón único del PASO 4, generar `.devflow-context/auth-profiles/<slug>.md`:
-- Copiar como base el perfil correspondiente de `artifacts/auth-profiles/`
-- Personalizar con los datos específicos del cliente recogidos en el PASO 4
-- Agregar sección "## Implementación en este cliente" con el service/componente propio si lo tienen
-
-### 8.7 — CI/CD profiles
-
-Por cada variante de pipeline identificada, generar `.devflow-context/cicd-profiles/<slug>.yml`.
-
-Si el cliente usa GitLab CI + K8s con el stack del cliente:
+Si hay variantes → generar una por variante (máx 3).
 
 ```yaml
 # cicd-profiles/<stack>-k8s.yml
-# Pipeline para [stack] + Kubernetes en [proveedor]
-# Personalizado para [nombre_cliente]
+# Pipeline estándar para <stack> en <cliente>
+# Detectado en <N>/<total> repos activos
 
 stages:
-  - lint
-  - test
-  - build
-  - docker
-  - deploy-qa   # automático en push a develop
-  - deploy-prod # manual desde main
+  - <stage 1>
+  - <stage 2>
+  - ...
 
-# Variables requeridas en GitLab CI Settings:
-# REGISTRY_URL, REGISTRY_USER, REGISTRY_PASS
-# K8S_CONFIG_QA, K8S_CONFIG_PROD
-# APP_NAMESPACE (ej: "los-pensamientos")
-
-[Incluir los stages reales según el stack del cliente]
+# Variables requeridas en CI Settings:
+# REGISTRY_URL, K8S_CONFIG_QA, K8S_CONFIG_PROD, APP_NAMESPACE
 ```
 
-### 8.8 — `.devflow-context/client-assessment.md`
+### `.devflow-context/client-assessment.md`
 
-Documentar todos los gaps identificados durante la entrevista:
-- Apps sin CI/CD
-- Patrones de auth no estándar que requieren consultoría
-- Gaps de infraestructura (sin observability, secrets no gestionados, etc.)
-- Próximos pasos sugeridos en orden de prioridad
+Documentar gaps identificados automáticamente:
+- Repos sin CI/CD
+- Apps con auth patterns no estándar o no reconocidos
+- Apps sin health check
+- Repos inactivos que podrían deprecarse formalmente
+- Gaps de infra detectados (sin observability mencionada, etc.)
 
-### 8.9 — `.gitignore`
+### `.devflow/config.yml`
 
-```
-node_modules/
-.DS_Store
-*.log
-.env
-.env.local
-vendor/
+Config maestro del cliente con todos los defaults.
 
-# DevFlow IA — runtime de sesión (no commitear)
-.devflow/session.json
-.devflow/heartbeat.log
-.devflow/transitions.log
-.devflow/transitions.ack
-```
+### `README.md` y `.gitignore`
+
+Guía de uso del repo de contexto y exclusiones estándar.
 
 ---
 
-## PASO 9 — Commit inicial
+## PASO 6 — Commit inicial
 
 ```bash
-# Si no es repo git todavía:
-git init
-
 git add .
-git commit -m "feat: devflow context — onboarding [SLUG_CLIENTE]
+git commit -m "feat: devflow context — onboarding <slug>
 
-Setup inicial del contexto DevFlow IA para [NOMBRE_CLIENTE].
+Discovery automático via API <git_host>/<git_group>.
 
-Apps inventariadas: [N]
-Auth profiles personalizados: [N]
-CI/CD profiles: [N]
-Gaps identificados: [N]
+Apps catalogadas: <N> (<N_activas> activas, <N_inactivas> inactivas)
+Auth profiles: <N> (<lista>)
+CI/CD profiles: <N>
+Gaps identificados: <N>
 
-Generado por /init-context v0.1.0"
+Generado por /init-context v0.2.0"
+
+git push origin main
 ```
 
 ---
 
-## PASO 10 — Resumen final y próximos pasos
+## PASO 7 — Resumen y próximos pasos
 
 ```
-✓ Contexto DevFlow IA generado para [NOMBRE_CLIENTE]
+✓ Contexto DevFlow IA generado para <NOMBRE_CLIENTE>
 
 Archivos creados:
   ✓ CLAUDE.md
   ✓ README.md
   ✓ .devflow/config.yml
-  ✓ .devflow-context/app-catalog.md    ([N] apps)
-  ✓ .devflow-context/client-assessment.md    ([N] gaps)
-  ✓ .devflow-context/auth-profiles/    ([N] perfiles)
-  ✓ .devflow-context/cicd-profiles/    ([N] perfiles)
-  ✓ .gitignore
+  ✓ .devflow-context/app-catalog.md   (<N> apps)
+  ✓ .devflow-context/client-assessment.md  (<N> gaps)
+  ✓ .devflow-context/auth-profiles/   (<N> perfiles)
+  ✓ .devflow-context/cicd-profiles/   (<N> perfiles)
 
-Commit inicial creado.
+Gaps que vale revisar con el Jefe TI:
+  <lista del client-assessment.md>
 
 Próximos pasos:
-  1. Push de este repo a GitLab/GitHub (del cliente o de Digital-Dev, según acuerdo)
-  2. Compartir acceso con el Jefe Dev del cliente
-  3. Revisar los gaps de client-assessment.md con el equipo
-  4. Cuando estés listo para la primera feature:
-       cd <repo-de-codigo-del-cliente>
-       dd-cli init
+  1. Revisar y completar los [por confirmar] en auth-profiles/
+  2. Cuando el primer dev arranque con una feature:
+       cd <repo-del-cliente>
+       dd-cli init --client=<slug>
        dd-cli start-session <HDU-id>
 ```
 
 ---
 
-## Modo `--update`
+## MODO MANUAL (fallback sin API)
 
-Si hay argumento `--update` o si PASO 0 detectó contexto existente:
+Si no hay credenciales API, ejecutar el flujo de entrevista de 8 bloques:
 
-- No reescribir archivos existentes
-- Preguntar solo: ¿qué quieres agregar? (apps / auth profiles / cicd profiles)
-- Ejecutar solo el PASO 3 (apps nuevas), PASO 4 (perfiles nuevos) o PASO 5 (pipelines nuevos)
-- Actualizar `client-assessment.md` con nuevos gaps
-- Commit: `"chore: devflow context update — [descripcion breve]"`
+**Bloque 1 — Identificación del cliente**
+Slug, nombre completo, industria, tamaño del equipo, contacto técnico.
+
+**Bloque 2 — Stack tecnológico**
+Backend, frontend, DBs, plataforma deploy, CI/CD, identidad.
+
+**Bloque 3 — Inventario de apps (loop)**
+Por cada app: slug, nombre, tipo, repo, estado, auth pattern.
+Repetir hasta "no hay más".
+
+**Bloque 4 — Detalle de auth profiles**
+Por cada patrón único: datos específicos del cliente.
+
+**Bloque 5 — CI/CD assessment**
+Cuántos tienen pipeline, stages comunes, registry, secrets.
+
+**Bloque 6 — Infraestructura**
+Ambientes, K8s, observability, secrets management.
+
+**Bloque 7 — Confirmación y generación**
+Mostrar resumen → confirmar → generar → commit.
 
 ---
 
-## Reglas importantes
+## Reglas
 
-1. **No inventar** — si no se sabe algo, usar `[por confirmar]` y continuar
-2. **Un perfil por patrón único** — no consolidar varios auth flows en un archivo
-3. **Confirmar antes de generar** (PASO 7) — nunca escribir archivos sin confirmación
-4. **Idioma:** español neutro latinoamericano. Sin conjugaciones de segunda persona singular informal (voseo rioplatense).
-5. **Tono:** consultor experto explicando al Jefe Dev por qué cada decisión importa
-6. **Si el cliente tiene algo inusual**, documéntalo en `client-assessment.md` antes de intentar estandarizarlo
+1. Modo auto > modo manual — siempre preferir la API
+2. En modo auto: confirmar antes de generar (PASO 4)
+3. No inventar — usar `[por confirmar]` si falta información
+4. Español neutro latinoamericano (sin voseo rioplatense)
+5. El análisis profundo de repos individuales queda para `/init-repo-context` cuando el dev trabaje en una feature específica
+6. Todos los repos existentes son `legacy-app` — solo los nuevos creados por `/new-app` son `greenfield-app`

@@ -73,11 +73,25 @@ program
 program
   .command('register-client <slug>')
   .description('Registra un cliente y clona su repo de contexto (~/.devflow/clients/<slug>/)')
-  .requiredOption('--context-url <url>', 'URL del repo GitHub con el contexto del cliente')
+  .requiredOption('--context-url <url>', 'URL del repo con el contexto del cliente (GitHub/GitLab)')
   .option('--name <name>', 'Nombre del cliente (opcional, se deduce de la URL)')
   .option('--force', 'Sobreescribir si ya está registrado', false)
+  .option('--git-token <token>', 'Personal Access Token para la API de Git (discovery automático)')
+  .option('--git-host <host>', 'Plataforma git: gitlab | github | bitbucket (default: gitlab)', 'gitlab')
+  .option('--git-group <group>', 'Grupo u organización a escanear (ej: iprsa-group)')
+  .option('--git-base-url <url>', 'URL base del servidor git (para instancias self-hosted)')
   .action(async (slug, opts) => {
-    try { process.exit(await runRegisterClient(slug, { contextUrl: opts.contextUrl, name: opts.name, force: opts.force })); }
+    try {
+      process.exit(await runRegisterClient(slug, {
+        contextUrl: opts.contextUrl,
+        name: opts.name,
+        force: opts.force,
+        gitToken: opts.gitToken,
+        gitHost: opts.gitHost,
+        gitGroup: opts.gitGroup,
+        gitBaseUrl: opts.gitBaseUrl,
+      }));
+    }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

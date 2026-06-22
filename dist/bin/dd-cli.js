@@ -2077,8 +2077,8 @@ function runReclassifyCmd(opts) {
 
 // src/commands/register-client.ts
 import { execSync } from "child_process";
-import { existsSync as existsSync11, mkdirSync as mkdirSync5 } from "fs";
-import * as path10 from "path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync5 } from "fs";
+import * as path11 from "path";
 
 // src/types/registry.ts
 import { z as z2 } from "zod";
@@ -2149,6 +2149,51 @@ function updateLastSynced(slug) {
   }
 }
 
+// src/types/credentials.ts
+import { z as z3 } from "zod";
+import { existsSync as existsSync11, readFileSync as readFileSync8, writeFileSync as writeFileSync5, chmodSync } from "fs";
+import * as path10 from "path";
+import * as yaml2 from "js-yaml";
+var GitHostSchema = z3.enum(["gitlab", "github", "bitbucket", "azure"]);
+var ClientCredentialsSchema = z3.object({
+  git_token: z3.string().min(1),
+  git_host: GitHostSchema.default("gitlab"),
+  git_base_url: z3.string().url().default("https://gitlab.com"),
+  git_group: z3.string().min(1)
+  // grupo/org a escanear
+});
+var CredentialsFileSchema = z3.object({
+  clients: z3.record(z3.string(), ClientCredentialsSchema).default({})
+});
+function getCredentialsPath() {
+  return path10.join(getDevflowGlobalDir(), "credentials.yml");
+}
+function loadCredentials() {
+  const p = getCredentialsPath();
+  if (!existsSync11(p)) return { clients: {} };
+  const raw = readFileSync8(p, "utf-8");
+  const parsed = yaml2.load(raw);
+  const result = CredentialsFileSchema.safeParse(parsed ?? {});
+  if (!result.success) throw new Error(`credentials.yml inv\xE1lido:
+${result.error.message}`);
+  return result.data;
+}
+function saveCredentials(creds) {
+  const p = getCredentialsPath();
+  const validated = CredentialsFileSchema.parse(creds);
+  const yamlStr = yaml2.dump(validated, { indent: 2 });
+  writeFileSync5(p, yamlStr, { encoding: "utf-8", mode: 384 });
+  try {
+    chmodSync(p, 384);
+  } catch {
+  }
+}
+function setClientCredentials(slug, creds) {
+  const all = loadCredentials();
+  all.clients[slug] = ClientCredentialsSchema.parse(creds);
+  saveCredentials(all);
+}
+
 // src/commands/register-client.ts
 function runGit(cmd, cwd) {
   try {
@@ -2181,12 +2226,12 @@ Registrando cliente: ${slug}
     printInfo(`El cliente "${slug}" ya est\xE1 registrado. Actualizando cache...`);
     return syncClient(slug, cacheDir, opts.contextUrl);
   }
-  const parentDir = path10.dirname(cacheDir);
-  if (!existsSync11(parentDir)) mkdirSync5(parentDir, { recursive: true });
-  if (existsSync11(cacheDir) && opts.force) {
+  const parentDir = path11.dirname(cacheDir);
+  if (!existsSync12(parentDir)) mkdirSync5(parentDir, { recursive: true });
+  if (existsSync12(cacheDir) && opts.force) {
     printDim(`  Sobreescribiendo cache existente en ${cacheDir}`);
   }
-  if (!existsSync11(cacheDir)) {
+  if (!existsSync12(cacheDir)) {
     printInfo(`Clonando repo de contexto...`);
     printDim(`  ${opts.contextUrl}`);
     printDim(`  \u2192 ${cacheDir}`);
@@ -2208,8 +2253,22 @@ Registrando cliente: ${slug}
     last_synced: (/* @__PURE__ */ new Date()).toISOString()
   });
   printOk(`Cliente registrado en ~/.devflow/registry.yml`);
-  const catalogPath = path10.join(cacheDir, ".devflow-context", "app-catalog.md");
-  if (existsSync11(catalogPath)) {
+  if (opts.gitToken && opts.gitGroup) {
+    const host = opts.gitHost ?? "gitlab";
+    const baseUrl = opts.gitBaseUrl ?? (host === "github" ? "https://api.github.com" : "https://gitlab.com");
+    setClientCredentials(slug, {
+      git_token: opts.gitToken,
+      git_host: host,
+      git_base_url: baseUrl,
+      git_group: opts.gitGroup
+    });
+    printOk(`Credenciales git guardadas en ~/.devflow/credentials.yml (chmod 600)`);
+    printDim(`  Host: ${host}  \xB7  Grupo: ${opts.gitGroup}`);
+  } else if (opts.gitToken || opts.gitGroup) {
+    printWarn(`Para guardar credenciales git se necesitan tanto --git-token como --git-group`);
+  }
+  const catalogPath = path11.join(cacheDir, ".devflow-context", "app-catalog.md");
+  if (existsSync12(catalogPath)) {
     const content = __require("fs").readFileSync(catalogPath, "utf-8");
     const appLines = content.match(/^\| [a-z]/gm) ?? [];
     const appCount = appLines.length;
@@ -2224,11 +2283,11 @@ Registrando cliente: ${slug}
   return 0;
 }
 function syncClient(slug, cacheDir, contextUrl) {
-  if (!existsSync11(cacheDir)) {
+  if (!existsSync12(cacheDir)) {
     printWarn(`Cache local no encontrada. Clonando de nuevo...`);
     try {
-      const parentDir = path10.dirname(cacheDir);
-      if (!existsSync11(parentDir)) mkdirSync5(parentDir, { recursive: true });
+      const parentDir = path11.dirname(cacheDir);
+      if (!existsSync12(parentDir)) mkdirSync5(parentDir, { recursive: true });
       runGit(`git clone "${contextUrl}" "${cacheDir}"`);
     } catch (e) {
       printErr(`Error al clonar: ${e instanceof Error ? e.message : String(e)}`);
@@ -2257,16 +2316,16 @@ function syncClient(slug, cacheDir, contextUrl) {
 }
 
 // src/commands/init-client.ts
-import { existsSync as existsSync13, readFileSync as readFileSync9 } from "fs";
-import * as path12 from "path";
+import { existsSync as existsSync14, readFileSync as readFileSync10 } from "fs";
+import * as path13 from "path";
 import { execSync as execSync2 } from "child_process";
 import { select as select2, input as input2, confirm } from "@inquirer/prompts";
 
 // src/types/project-config.ts
-import { z as z3 } from "zod";
-import { readFileSync as readFileSync8, writeFileSync as writeFileSync5, existsSync as existsSync12, mkdirSync as mkdirSync6 } from "fs";
-import * as path11 from "path";
-import * as yaml2 from "js-yaml";
+import { z as z4 } from "zod";
+import { readFileSync as readFileSync9, writeFileSync as writeFileSync6, existsSync as existsSync13, mkdirSync as mkdirSync6 } from "fs";
+import * as path12 from "path";
+import * as yaml3 from "js-yaml";
 var APP_TYPES = [
   "microservice",
   "bff",
@@ -2277,34 +2336,34 @@ var APP_TYPES = [
   "library"
 ];
 var APP_ORIGINS = ["greenfield-app", "legacy-app", "external-app"];
-var ProjectConfigSchema = z3.object({
-  client: z3.object({
-    slug: z3.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
-    name: z3.string().min(1),
-    context_url: z3.string().url("Debe ser una URL de GitHub/GitLab")
+var ProjectConfigSchema = z4.object({
+  client: z4.object({
+    slug: z4.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+    name: z4.string().min(1),
+    context_url: z4.string().url("Debe ser una URL de GitHub/GitLab")
   }),
-  app: z3.object({
-    slug: z3.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
-    type: z3.enum(APP_TYPES),
-    auth_profile: z3.string().min(1),
-    ci_cd_profile: z3.string().min(1),
-    app_origin: z3.enum(APP_ORIGINS).default("legacy-app"),
-    preferred_dev_types: z3.array(z3.enum(DEV_TYPES)).default([])
+  app: z4.object({
+    slug: z4.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+    type: z4.enum(APP_TYPES),
+    auth_profile: z4.string().min(1),
+    ci_cd_profile: z4.string().min(1),
+    app_origin: z4.enum(APP_ORIGINS).default("legacy-app"),
+    preferred_dev_types: z4.array(z4.enum(DEV_TYPES)).default([])
   }),
-  devflow: z3.object({
-    mode: z3.enum(["local", "platform"]).default("local"),
-    platform_url: z3.string().url().nullable().default(null)
+  devflow: z4.object({
+    mode: z4.enum(["local", "platform"]).default("local"),
+    platform_url: z4.string().url().nullable().default(null)
   }).default({ mode: "local", platform_url: null })
 });
 var CONFIG_FILENAME = "config.yml";
 function getProjectConfigPath(projectRoot) {
-  return path11.join(projectRoot, ".devflow", CONFIG_FILENAME);
+  return path12.join(projectRoot, ".devflow", CONFIG_FILENAME);
 }
 function loadProjectConfig(projectRoot) {
   const configPath = getProjectConfigPath(projectRoot);
-  if (!existsSync12(configPath)) return null;
-  const raw = readFileSync8(configPath, "utf-8");
-  const parsed = yaml2.load(raw);
+  if (!existsSync13(configPath)) return null;
+  const raw = readFileSync9(configPath, "utf-8");
+  const parsed = yaml3.load(raw);
   const result = ProjectConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(
@@ -2315,14 +2374,14 @@ ${result.error.message}`
   return result.data;
 }
 function saveProjectConfig(projectRoot, config) {
-  const devflowDir = path11.join(projectRoot, ".devflow");
-  if (!existsSync12(devflowDir)) mkdirSync6(devflowDir, { recursive: true });
+  const devflowDir = path12.join(projectRoot, ".devflow");
+  if (!existsSync13(devflowDir)) mkdirSync6(devflowDir, { recursive: true });
   const validated = ProjectConfigSchema.parse(config);
-  const yamlStr = yaml2.dump(validated, { indent: 2, lineWidth: 120 });
-  writeFileSync5(getProjectConfigPath(projectRoot), yamlStr, "utf-8");
+  const yamlStr = yaml3.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync6(getProjectConfigPath(projectRoot), yamlStr, "utf-8");
 }
 function hasProjectConfig(projectRoot) {
-  return existsSync12(getProjectConfigPath(projectRoot));
+  return existsSync13(getProjectConfigPath(projectRoot));
 }
 function buildProjectConfig(opts) {
   return ProjectConfigSchema.parse({
@@ -2346,8 +2405,8 @@ function buildProjectConfig(opts) {
 // src/commands/init-client.ts
 var isTTY6 = process.stdout.isTTY;
 function parseAppCatalog(catalogPath) {
-  if (!existsSync13(catalogPath)) return [];
-  const content = readFileSync9(catalogPath, "utf-8");
+  if (!existsSync14(catalogPath)) return [];
+  const content = readFileSync10(catalogPath, "utf-8");
   const entries = [];
   const rows = content.match(/^\| [a-z][^|]*/gm) ?? [];
   for (const row of rows) {
@@ -2368,9 +2427,9 @@ function parseAppCatalog(catalogPath) {
 function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
-    if (!existsSync13(cacheDir)) {
+    if (!existsSync14(cacheDir)) {
       const { mkdirSync: mkdirSync7 } = __require("fs");
-      mkdirSync7(path12.dirname(cacheDir), { recursive: true });
+      mkdirSync7(path13.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -2401,7 +2460,7 @@ Conectando repo al cliente: ${clientSlug}
     printWarn(`No se pudo actualizar la cache. Usando versi\xF3n local.`);
   }
   const cacheDir = getClientCacheDir(clientSlug);
-  const catalogPath = path12.join(cacheDir, ".devflow-context", "app-catalog.md");
+  const catalogPath = path13.join(cacheDir, ".devflow-context", "app-catalog.md");
   const existingApps = parseAppCatalog(catalogPath);
   let selectedApp = null;
   let isNewApp = false;
@@ -2453,7 +2512,7 @@ Conectando repo al cliente: ${clientSlug}
     printInfo("Registrando nueva app en el contexto del cliente:");
     appSlug = await input2({
       message: "Slug de la app (kebab-case):",
-      default: path12.basename(projectRoot),
+      default: path13.basename(projectRoot),
       validate: (v) => /^[a-z0-9-]+$/.test(v) || "Debe ser kebab-case (solo min\xFAsculas, n\xFAmeros y guiones)"
     });
     appType = await select2({
@@ -2515,7 +2574,7 @@ Conectando repo al cliente: ${clientSlug}
 
 // src/commands/pull-context.ts
 import { execSync as execSync3 } from "child_process";
-import { existsSync as existsSync14 } from "fs";
+import { existsSync as existsSync15 } from "fs";
 function runGit2(cmd, cwd) {
   return execSync3(cmd, {
     cwd,
@@ -2540,12 +2599,12 @@ Actualizando contexto del cliente: ${slug}
   printDim(`  Cache: ${cacheDir}`);
   printDim(`  Fuente: ${context_url}`);
   console.log("");
-  if (!existsSync14(cacheDir)) {
+  if (!existsSync15(cacheDir)) {
     printInfo("Cache local no encontrada. Clonando...");
     try {
       const { mkdirSync: mkdirSync7 } = __require("fs");
-      const path14 = __require("path");
-      mkdirSync7(path14.dirname(cacheDir), { recursive: true });
+      const path15 = __require("path");
+      mkdirSync7(path15.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
       printOk("Contexto clonado correctamente");
@@ -2603,7 +2662,7 @@ Actualizando contexto del cliente: ${slug}
 }
 
 // src/commands/doctor-cmd.ts
-import { existsSync as existsSync15 } from "fs";
+import { existsSync as existsSync16 } from "fs";
 
 // src/commands/doctor.ts
 function doctor({ projectRoot, session, forType }) {
@@ -2640,14 +2699,14 @@ ${bold("Diagn\xF3stico del entorno DevFlow IA")}
     printDim(`  Instala Claude Code: https://claude.com/claude-code`);
   }
   const skillsDir = getClaudeSkillsDir();
-  if (existsSync15(skillsDir)) {
+  if (existsSync16(skillsDir)) {
     printOk(`Skills instaladas en ${skillsDir}`);
   } else {
     printWarn(`Skills no instaladas`);
     printDim(`  Ejecuta: dd-cli init`);
   }
   const settingsPath = `${projectRoot}/.claude/settings.json`;
-  if (existsSync15(settingsPath)) {
+  if (existsSync16(settingsPath)) {
     printOk(`.claude/settings.json con hooks presente`);
   } else {
     printWarn(`.claude/settings.json no encontrado`);
@@ -2752,8 +2811,8 @@ function humanizeRuleId(technicalMsg) {
 }
 
 // src/commands/watch.ts
-import { existsSync as existsSync16, readFileSync as readFileSync10 } from "fs";
-import * as path13 from "path";
+import { existsSync as existsSync17, readFileSync as readFileSync11 } from "fs";
+import * as path14 from "path";
 var isTTY8 = process.stdout.isTTY;
 var c2 = {
   reset: "\x1B[0m",
@@ -2777,11 +2836,11 @@ function progressBar(done, total, width = 12) {
 }
 function activeChangeName(projectRoot) {
   try {
-    const changes = path13.join(projectRoot, "openspec", "changes");
-    if (!existsSync16(changes)) return null;
+    const changes = path14.join(projectRoot, "openspec", "changes");
+    if (!existsSync17(changes)) return null;
     const { readdirSync: readdirSync3, statSync: statSync5 } = __require("fs");
     const entries = readdirSync3(changes).filter((e) => {
-      return statSync5(path13.join(changes, e)).isDirectory() && existsSync16(path13.join(changes, e, "tasks.md"));
+      return statSync5(path14.join(changes, e)).isDirectory() && existsSync17(path14.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
   } catch {
@@ -2790,7 +2849,7 @@ function activeChangeName(projectRoot) {
 }
 function countTasks(projectRoot, changeName) {
   try {
-    const content = readFileSync10(path13.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
+    const content = readFileSync11(path14.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
     const total = (content.match(/^- \[[ x]\]/gm) ?? []).length;
     const done = (content.match(/^- \[x\]/gm) ?? []).length;
     return { done, total };
@@ -2930,9 +2989,17 @@ program.command("status").description("Muestra tu progreso en el flujo (narrativ
     process.exit(10);
   }
 });
-program.command("register-client <slug>").description("Registra un cliente y clona su repo de contexto (~/.devflow/clients/<slug>/)").requiredOption("--context-url <url>", "URL del repo GitHub con el contexto del cliente").option("--name <name>", "Nombre del cliente (opcional, se deduce de la URL)").option("--force", "Sobreescribir si ya est\xE1 registrado", false).action(async (slug, opts) => {
+program.command("register-client <slug>").description("Registra un cliente y clona su repo de contexto (~/.devflow/clients/<slug>/)").requiredOption("--context-url <url>", "URL del repo con el contexto del cliente (GitHub/GitLab)").option("--name <name>", "Nombre del cliente (opcional, se deduce de la URL)").option("--force", "Sobreescribir si ya est\xE1 registrado", false).option("--git-token <token>", "Personal Access Token para la API de Git (discovery autom\xE1tico)").option("--git-host <host>", "Plataforma git: gitlab | github | bitbucket (default: gitlab)", "gitlab").option("--git-group <group>", "Grupo u organizaci\xF3n a escanear (ej: iprsa-group)").option("--git-base-url <url>", "URL base del servidor git (para instancias self-hosted)").action(async (slug, opts) => {
   try {
-    process.exit(await runRegisterClient(slug, { contextUrl: opts.contextUrl, name: opts.name, force: opts.force }));
+    process.exit(await runRegisterClient(slug, {
+      contextUrl: opts.contextUrl,
+      name: opts.name,
+      force: opts.force,
+      gitToken: opts.gitToken,
+      gitHost: opts.gitHost,
+      gitGroup: opts.gitGroup,
+      gitBaseUrl: opts.gitBaseUrl
+    }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
