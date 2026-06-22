@@ -1,0 +1,18 @@
+# Excluir de npm pack / install desde GitHub
+node_modules/
+coverage/
+.vitest-cache/
+*.log
+.env*
+src/
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+
+# Incluir explícitamente (override del .gitignore):
+# dist/        ← binario pre-compilado
+# skills/      ← skills bundleadas
+# artifacts/   ← auth-profiles y otros artefactos
+# templates/   ← CLAUDE.md.template
+# scripts/     ← bundle-skills.js (para rebuild local)
+# skills.checksums
