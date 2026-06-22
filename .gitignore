@@ -1,8 +1,10 @@
 node_modules/
-dist/
 coverage/
 .DS_Store
 *.log
 .env
 .env.local
 .vitest-cache/
+
+# dist/ SE COMMITEA — es el binario pre-compilado para instalación global
+# No commitear: .vitest-cache/, coverage/

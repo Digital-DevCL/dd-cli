@@ -23,11 +23,10 @@
     "skills/",
     "artifacts/",
     "templates/",
-    "schemas/",
     "skills.checksums"
   ],
   "scripts": {
-    "prepare": "tsup && node scripts/bundle-skills.js",
+    "prepare": "node -e \"if(!process.env.npm_config_global){require('child_process').execSync('tsup && node scripts/bundle-skills.js',{stdio:'inherit'})}\"",
     "build": "tsup",
     "build:full": "tsup && node scripts/bundle-skills.js",
     "dev": "tsup --watch",
