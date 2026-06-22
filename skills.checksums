@@ -1,0 +1,22 @@
+{
+  "capture-baseline.md": "fefbcfb0a8bb95edded1f5e54f7cbe8da396b45c7727e9d0235b1266621a640e",
+  "capture-req.md": "dbe5acd1da276a8c222f305a485166d2a8d0e9105418fc0b2186f6f6badee8bf",
+  "derive-spec.md": "547fc3db9de85ae7cf876ae5977e551269f2d4057998b729df7ebfd0cc6bb232",
+  "design-hdu.md": "63b1fb2204fa3acd52407b3ba54363d43845f655b2e82586c9a195a570936d14",
+  "end-session.md": "043a22fa32dc3c16105e1b216d18d3d085b99fed7ab30922594a8208c739638d",
+  "enrich-us.md": "0c360a97264bdf70573e95bc3aef19dbd9e32033229e8bfd068aa6195548c0ce",
+  "explain-code.md": "34feb57b9bfc0adc649022d6587deec808c69f6fd8d92a79974ecced9f37bb8a",
+  "explore-repo.md": "400201a6655d9d991e754f085869399d8110798333ad942ff66f1713d03c6989",
+  "init-context.md": "e1bdf4b15d8ec2ae3d38835fa2b954b4064b0353961ead61f1cd30a8dd627e6c",
+  "init-repo-context.md": "e1399de6f9cdc0f1c4a01d030251facc68ace8cb62b6511de204a16e35316155",
+  "map-service.md": "44e9c28204ca5bae165b115170c2dce9154238db7a9478f8111a50921f155d8e",
+  "new-app.md": "a182eb409052360d9c2d08309f014771440c7aff3f44ef3bef6a1e2756a3394c",
+  "new-spec.md": "77f311dea132f6fa6ade87236d990c476a533e0d1e5ed86b9c88c3d7247a82a6",
+  "opsx/apply.md": "c08acfd6c319cc3ada96c77cb2007ca6131afa1c0b2bad127fee48126f844eef",
+  "opsx/archive.md": "05ae1a5ad2c4e8cf40088e4238701c65a66687606e0a53b4858a2b2008608abb",
+  "opsx/explore.md": "7b7dda848188e40ce08e96bed07f3fc9e29e408ab5a80a24f8701edf40bd6463",
+  "opsx/propose.md": "4953d4d16c45f54e64bb6558a3d0195082fbc52c0ec710cc115f7e759416b9e4",
+  "plan-sprint.md": "00b27c4a3cf787820d868b4efebe88802d74c738dea7cd6bbf7e20dfb617db9b",
+  "release-check.md": "1907a6874537b347c160cabc79b046936354cd85c316280d026789e47da993a7",
+  "trace-flow.md": "ba323bd4ee70ac2e31895eb29aa41fbc1b4f4fd93812f76e7265ea157071473d"
+}

@@ -1,0 +1,66 @@
+{
+  "name": "@devflow-ia/cli",
+  "version": "0.2.0",
+  "description": "DevFlow IA CLI — dd-cli, asistente de terminal para el método DevFlow IA",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jcharti/dd-cli.git"
+  },
+  "homepage": "https://github.com/jcharti/dd-cli#readme",
+  "bugs": {
+    "url": "https://github.com/jcharti/dd-cli/issues"
+  },
+  "bin": {
+    "dd-cli": "./dist/bin/dd-cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/",
+    "scripts/",
+    "skills/",
+    "artifacts/",
+    "templates/",
+    "schemas/",
+    "skills.checksums"
+  ],
+  "scripts": {
+    "prepare": "tsup && node scripts/bundle-skills.js",
+    "build": "tsup",
+    "build:full": "tsup && node scripts/bundle-skills.js",
+    "dev": "tsup --watch",
+    "lint": "node scripts/lint-skills.js || true",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.5.2",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "chalk": "^5.3.0",
+    "cli-boxes": "^4.0.0",
+    "commander": "^12.0.0",
+    "globby": "^14.0.0",
+    "inquirer": "^9.2.0",
+    "js-yaml": "^4.1.0",
+    "ora": "^8.0.0",
+    "undici": "^6.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

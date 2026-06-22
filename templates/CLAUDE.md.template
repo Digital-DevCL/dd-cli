@@ -1,0 +1,86 @@
+# {{PROJECT_NAME}} — DevFlow IA
+
+<!-- Archivo generado por dd-cli init. Editar sección "Proyecto" con los datos reales. -->
+
+## DevFlow IA — Auto-onboarding
+
+Al iniciar una conversación en este proyecto, haz lo siguiente:
+
+1. Lee `.devflow/session.json` (si existe).
+
+2. Si **no hay sesión activa** (`started_at` es null o el archivo no existe):
+   Dile al usuario:
+   > 👋 Bienvenido a este proyecto DevFlow IA.
+   > Para empezar, ejecuta en tu terminal:
+   > ```
+   > dd-cli start-session <HDU-id>
+   > ```
+   > Cuando tengas la sesión activa, volvemos a este chat y continuamos.
+
+3. Si **hay sesión activa** (`started_at` definido, `ended_at` null):
+   Dile al usuario:
+   > Continuamos con **[feature_name]** (HDU [feature_id]).
+   > Estás en el paso [N/M] del flujo [dev_type]: `[skill actual]`.
+   > Tu próximo paso es: `[next-skill]`.
+   > ¿Avanzamos?
+
+4. Si hay **sesión sin cerrar** (`unclosed: true`):
+   Dile al usuario:
+   > Hay una sesión de ayer sin cerrar (**[feature_name]**, [duración]).
+   > ¿La retomamos con `/resume-session` o la cerramos con `dd-cli end-session`?
+
+5. **No inicies implementación** si:
+   - No hay sesión activa
+   - El `flow_state` no es `spec_ready` o `change_active`
+   - La skill que corresponde no fue ejecutada según el viaje del `dev_type`
+
+---
+
+## DevFlow IA — Flujo obligatorio
+
+Reglas que Claude hace cumplir durante toda la sesión:
+
+```
+Al empezar cada sesión:
+  1. Ejecuta `dd-cli status` o lee `.devflow/session.json`
+  2. Muestra en qué paso del viaje está el dev
+  3. Propone el siguiente paso
+
+Durante el trabajo:
+  ✗ No implementar código si `.ai/SPEC.md` no existe → primero /new-spec
+  ✗ No ejecutar /opsx:apply sin /opsx:propose aprobado
+  ✗ Si dev_type ≠ greenfield y no existe `.ai/REPO-CONTEXT.md` → primero /init-repo-context
+
+Al cerrar:
+  ✓ Siempre ejecutar /end-session antes de terminar la conversación
+  ✓ Si el dev dice "hasta mañana" o similar → recordar el /end-session
+```
+
+---
+
+## Proyecto
+
+**Nombre:** {{PROJECT_NAME}}
+**Stack:** {{STACK}}
+**Entorno:** {{INFRA}}
+
+<!-- Completar con los datos del proyecto -->
+SPEC_PATH: docs/specs/
+APPS_PATH: apps/
+BACKEND_FRAMEWORK: {{BACKEND_FRAMEWORK}}
+FRONTEND_FRAMEWORK: {{FRONTEND_FRAMEWORK}}
+DB: {{DB}}
+MAIN_BRANCH: main
+DEVFLOW_MODE: local
+DEVFLOW_URL: null
+
+---
+
+## Comandos rápidos
+
+```bash
+dd-cli status          # ¿Dónde estoy en el flujo?
+dd-cli next            # ¿Qué tipeo ahora?
+dd-cli help            # Comandos útiles según el estado actual
+dd-cli end-session     # Cerrar sesión al terminar el día
+```
