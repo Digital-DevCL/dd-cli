@@ -634,7 +634,37 @@ Los tokens API deben tener el mínimo de permisos necesario:
 
 ---
 
-## Apéndice — checklist de implementación
+## Apéndice A — Catálogo completo de skills (v0.4.0)
+
+Las 20 skills bundleadas con el CLI, organizadas por fase del método:
+
+| Skill | Modelo | Dev_types | Cuándo se usa |
+|---|---|---|---|
+| `/devflow-ia:init-context` | opus | todos | Consultor crea la fuente de la verdad del cliente (una vez por empresa) |
+| `/devflow-ia:design-hdu` | opus | todos | Tech Lead / PMO refina el brief → HDU formal con dev_type aprobado |
+| `/devflow-ia:plan-sprint` | sonnet | todos | Tech Lead organiza HDUs en sprint |
+| `/devflow-ia:init-repo-context` | opus | brownfield, refactor, modern., integración | Dev mapea el repo antes de tocar código. Multi-stack v0.4.0. |
+| `/devflow-ia:explore-repo` | opus | brownfield, refactor, modern., integración | Reporte ad-hoc rápido de stack y estructura (sin guardar .md) |
+| `/devflow-ia:explain-code` | sonnet | brownfield, refactor, modern. | Explica un archivo o fragmento en nivel técnico y de negocio |
+| `/devflow-ia:map-service` | sonnet | brownfield, refactor, modern. | Diagrama Mermaid de capas del módulo. Multi-stack v0.4.0. |
+| `/devflow-ia:trace-flow` | opus | refactor, modern. | Traza flujos cross-service o en monolito. Multi-stack v0.4.0. |
+| `/devflow-ia:capture-baseline` | opus | refactor | Snapshot pre-refactor (tests, contratos, métricas). Multi-stack v0.4.0. |
+| `/devflow-ia:new-spec` | opus | todos | Genera la SPEC técnica. Orquesta `init-repo-context` si falta. |
+| `/devflow-ia:derive-spec` | sonnet | todos | Divide el SPEC maestro por app afectada |
+| `/devflow-ia:enrich-us` | sonnet | todos | Enriquece una user story con criterios de aceptación |
+| `/devflow-ia:new-app` | sonnet | greenfield | Scaffolding de app nueva desde template o from-scratch |
+| `/devflow-ia:opsx:propose` | sonnet | todos | Diseña la implementación (proposal + design + tasks) |
+| `/devflow-ia:opsx:apply` | sonnet | todos | Implementa task por task siguiendo el plan aprobado |
+| `/devflow-ia:opsx:explore` | sonnet | todos | Explora el codebase antes de proponer cambios |
+| `/devflow-ia:opsx:archive` | haiku | todos | Archiva un change completado |
+| `/devflow-ia:release-check` | sonnet | todos | Verifica que el código cumple la SPEC antes del MR |
+| `/devflow-ia:end-session` | haiku | todos | Commit + push + resumen. Cierra el ciclo. |
+
+**Multi-stack (v0.4.0):** `/init-repo-context`, `/capture-baseline`, `/map-service`, `/trace-flow`, `/explore-repo` soportan explícitamente Node, PHP/Laravel, Python, .NET, Java/Spring y Go.
+
+---
+
+## Apéndice B — checklist de implementación
 
 ### Para el consultor Digital-Dev
 

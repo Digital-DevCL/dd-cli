@@ -506,29 +506,47 @@ dd-cli skills list
 ```
 Skills instaladas en ~/.claude/commands/devflow-ia (v0.4.0)
 
-  Digital-Dev:
-    ⬛ /new-spec            Spec         opus
-    ⬜ /derive-spec         Spec         sonnet
-    ⬛ /init-repo-context   Exploration  opus
-    ⬜ /new-app             Onboarding   sonnet
-    ▪  /end-session         Session      haiku
-    ...
+  ONBOARDING (para el consultor / Tech Lead)
+  ⬛ /devflow-ia:init-context       Onboarding    opus    Discovery del cliente via API → fuente de la verdad
+  ⬜ /devflow-ia:design-hdu         Spec          opus    Brief/épica → HDU formal. Integra con dd-cli new-hdu.
+  ⬜ /devflow-ia:plan-sprint        Planning      sonnet  Lista de HDUs → sprint planificado
 
-  OpenSpec (adaptado):
-    ⬜ /opsx:propose        Workflow     sonnet
-    ⬜ /opsx:apply          Workflow     sonnet
-    ...
+  ANÁLISIS DE REPO (para devs brownfield/refactor/modernización)
+  ⬛ /devflow-ia:init-repo-context  Exploration   opus    Mapeo del repo → .ai/REPO-CONTEXT.md (multi-stack)
+  ⬜ /devflow-ia:explore-repo       Exploration   opus    Reporte rápido de stack y estructura (ad-hoc)
+  ⬜ /devflow-ia:explain-code       Exploration   sonnet  Explica código en nivel técnico y de negocio
+  ⬜ /devflow-ia:map-service        Exploration   sonnet  Diagrama Mermaid de capas y flujos (multi-stack)
+  ⬛ /devflow-ia:trace-flow         Exploration   opus    Traza flujos cross-service en monolitos y microservicios
 
-Total: 19 skills  ·  opus ⬛  sonnet ⬜  haiku ▪
+  SPEC (para todos los dev_types)
+  ⬛ /devflow-ia:new-spec           Spec          opus    Genera la SPEC técnica. Orquesta init-repo-context si falta.
+  ⬜ /devflow-ia:derive-spec        Spec          sonnet  Divide el SPEC maestro por app afectada
+  ⬛ /devflow-ia:capture-baseline   Quality       opus    Snapshot pre-refactor (tests, contratos, métricas) — solo refactor
+
+  SCAFFOLDING (solo greenfield)
+  ⬜ /devflow-ia:new-app            Onboarding    sonnet  Scaffolding de app nueva. Detecta si hay templates o usa from-scratch.
+  ⬜ /devflow-ia:enrich-us          Spec          sonnet  Enriquece una user story con criterios de aceptación
+
+  IMPLEMENTACIÓN (para todos)
+  ⬜ /devflow-ia:opsx:propose       Workflow      sonnet  Diseña la implementación (proposal + design + tasks)
+  ⬜ /devflow-ia:opsx:apply         Workflow      sonnet  Implementa task por task siguiendo el plan aprobado
+  ⬜ /devflow-ia:opsx:explore       Workflow      sonnet  Explora el codebase antes de proponer cambios
+  ▪  /devflow-ia:opsx:archive       Workflow      haiku   Archiva un change completado
+
+  RELEASE
+  ⬜ /devflow-ia:release-check      Quality       sonnet  Verifica que el código cumple la SPEC antes del MR
+  ▪  /devflow-ia:end-session        Session       haiku   Commit + push + resumen. Cierra el ciclo.
+
+Total: 20 skills  ·  opus ⬛  sonnet ⬜  haiku ▪
 ```
 
-Los íconos indican el modelo recomendado para cada skill (opus para decisiones importantes, haiku para tareas mecánicas).
+Los íconos indican el modelo recomendado (opus para decisiones arquitectónicas importantes, haiku para tareas mecánicas).
 
 ### Verificar integridad
 
 ```bash
 dd-cli skills verify
-# → ✓ 19 skills verificadas — todas coinciden con checksums
+# → ✓ 20 skills verificadas — todas coinciden con checksums
 ```
 
 ### Reinstalar (si algo quedó corrupto)
