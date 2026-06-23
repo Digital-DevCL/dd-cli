@@ -248,19 +248,112 @@ La SPEC se commitea en `.ai/SPEC.md` dentro del repo de la feature.
 ### Dónde viven los templates
 
 ```
-cli-package/templates/
-├── HDU.md.template       ← HDU base (creada por dd-cli new-hdu)
-├── SPEC.md.template      ← SPEC base (completada por /new-spec)
-└── CLAUDE.md.template    ← CLAUDE.md base (creado por dd-cli init)
+cli-package/templates/                 ← bundleados con el CLI
+├── HDU.md.template       ← estructura base de la HDU (dd-cli new-hdu)
+├── SPEC.md.template      ← estructura de referencia de la SPEC
+└── CLAUDE.md.template    ← CLAUDE.md base (dd-cli init)
 ```
 
-Los templates se bundlean con el CLI y están disponibles sin conexión.
+Los templates de documentación se bundlean con el CLI y están disponibles sin conexión. **No es necesario configurarlos** — vienen listos al instalar `dd-cli`.
+
+La estructura de la SPEC real no proviene del template sino de la **skill `/new-spec`**: la skill conoce qué secciones debe tener cada dev_type y las genera con contenido real basado en la entrevista con el dev y el análisis del repo. El template es solo el archivo de partida vacío; Claude lo llena.
+
+```
+dd-cli new-hdu "Feature"
+  → crea HDU-001.md desde HDU.md.template   ← estructura fija, placeholder
+
+/devflow-ia:new-spec
+  → genera .ai/SPEC.md con contenido real   ← no es template, es generado por Claude
+                                               basado en el dev_type y el contexto del repo
+```
 
 ---
 
 ## 6. Templates de código
 
 Los templates de código definen el **scaffolding estándar** de la empresa para cada tipo de app. Se usan en la skill `/devflow-ia:new-app` cuando el dev_type es `greenfield`.
+
+### Tres escenarios posibles
+
+La skill `/new-app` detecta automáticamente en qué situación está la empresa y actúa distinto en cada caso:
+
+---
+
+**Caso A — Templates configurados** ✅
+
+La empresa tiene repos template registrados en el CLAUDE.md. La skill los clona y adapta. Es el flujo ideal: todas las apps nuevas nacen con los estándares del equipo desde el primer commit.
+
+```
+/new-app portal-clientes
+→ Detecta: template dd-mfe-angular21 disponible
+→ Clona el template, adapta nombre/namespace/auth
+→ App lista para compilar en verde
+```
+
+---
+
+**Caso B — Arquitectura definida, sin apps desplegadas aún** ⚠️
+
+La empresa tiene el stack y la arquitectura diseñada (CLAUDE.md tiene STACK, BACKEND_FRAMEWORK, etc.), pero **es la primera app que se construye** y todavía no hay templates propios.
+
+Ejemplo real: DevFlow IA app — la arquitectura está completamente definida (NestJS + Angular + PostgreSQL + K8s), pero ninguna app está desplegada todavía y no hay templates previos.
+
+La skill advierte y ofrece dos caminos:
+
+```
+⚠️  No encontré templates de código configurados para este proyecto.
+
+Opciones:
+  A) Continuar en modo "from scratch" (recomendado si es la primera app)
+     El scaffolding generado puede convertirse en el template base.
+  B) Definir el template primero y volver a ejecutar /new-app.
+```
+
+Si el dev confirma, la skill genera un scaffolding completo y funcional desde cero:
+- Estructura de directorios completa
+- Código que compila en verde
+- Health check mínimo
+- Auth integrado según el auth-profile del cliente
+- Pipeline CI/CD desde el profile del cliente
+- `.env.example` con todas las variables documentadas
+
+Al finalizar, sugiere registrar el resultado como el template base:
+
+```
+⚠️  Scaffolding from-scratch completado.
+Este resultado es el candidato a convertirse en el template estándar
+de la empresa para apps de tipo [tipo].
+
+Próximo paso recomendado (Tech Lead):
+  1. Revisar y ajustar el código generado
+  2. Crear un repo template con este contenido
+  3. Registrarlo en el CLAUDE.md bajo "## Templates de código"
+  4. La próxima vez que ejecutes /new-app, lo usará automáticamente.
+```
+
+---
+
+**Caso C — Sin stack definido** ❌
+
+No hay STACK, BACKEND_FRAMEWORK ni templates. La skill aborta con instrucciones claras:
+
+```
+✗  No puedo generar el scaffolding — faltan las definiciones mínimas del proyecto.
+
+Soluciones:
+  1. Completa las variables {{...}} en el CLAUDE.md (creado por dd-cli init)
+  2. O ejecuta /init-context para generar el contexto desde los repos existentes
+```
+
+---
+
+### Resumen del comportamiento de /new-app
+
+| Situación | Qué hace la skill |
+|---|---|
+| Templates configurados | Usa el template, adapta, genera en ≤2 min |
+| Stack definido, sin templates | Advierte, ofrece from-scratch, sugiere guardar como template |
+| Nada definido | Aborta con instrucciones para completar el contexto |
 
 ### Tipos de templates
 

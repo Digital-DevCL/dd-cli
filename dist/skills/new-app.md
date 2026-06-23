@@ -1,10 +1,10 @@
 ---
 name: new-app
-description: Genera scaffolding inicial de una nueva app — solo válida para dev_type=greenfield
+description: Genera scaffolding inicial de una nueva app — solo válida para dev_type=greenfield. Detecta si hay templates configurados y opera en modo template o modo from-scratch.
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.2.0
+version: 0.3.0
 category: Onboarding
 tags: [scaffolding, app, devflow-ia]
 model: sonnet
@@ -14,7 +14,7 @@ applies_to_dev_types: [greenfield]
 reads:
   - "CLAUDE.md"
   - ".devflow/session.json (dev_type)"
-  - ".devflow-context/templates/<app-type>/  (templates validated)"
+  - ".devflow-context/app-catalog.md (template_origin por app-type)"
   - ".devflow-context/auth-profiles/<perfil>.md"
 writes:
   - "<APPS_PATH>/<slug>/  (scaffolding completo)"
@@ -25,8 +25,6 @@ enforcement_rules_evaluated:
 Eres un arquitecto de software experto en el método DevFlow IA. Tu objetivo es generar el scaffolding inicial para una nueva app o servicio: archivos `.ai/`, CLAUDE.md y la estructura de directorios base según el stack del proyecto.
 
 **Importante: este skill SOLO aplica a `dev_type == greenfield`. Para todos los demás tipos está bloqueado.**
-
-> Nota: este skill será refactorizado (T0-003) para leer artefactos composables desde `.devflow-context/` (auth-profiles, cicd-templates, claude-fragments).
 
 **Argumento opcional:** `/new-app [slug]`
 
@@ -77,6 +75,85 @@ Variables clave:
 
 ---
 
+## PASO 0b — Detectar modo: ¿hay templates de código configurados?
+
+Buscar en el CLAUDE.md (o en `.devflow-context/app-catalog.md` si existe) si hay templates de código registrados:
+
+```bash
+grep -iE "template|Template" CLAUDE.md 2>/dev/null | grep -i "http\|gitlab\|github\|url" | head -10
+cat .devflow-context/app-catalog.md 2>/dev/null | grep -i "template_origin" | head -10
+```
+
+### Caso A — Templates configurados ✅
+
+Hay URLs de repos template en el CLAUDE.md o `template_origin` en el app-catalog.
+
+→ **Modo template**: usar el template correspondiente al tipo de app que se va a crear.
+→ Continuar con PASO 1 normalmente.
+
+---
+
+### Caso B — Sin templates, pero stack definido ⚠️
+
+El CLAUDE.md tiene `STACK`, `BACKEND_FRAMEWORK`, `FRONTEND_FRAMEWORK` etc., pero NO hay templates de código registrados. Esto ocurre cuando:
+- La arquitectura ya está diseñada pero es la primera app que se construye
+- La empresa aún no tiene templates propios estandarizados
+- Están arrancando desde cero con una arquitectura definida
+
+**Mostrar advertencia:**
+
+```
+⚠️  No encontré templates de código configurados para este proyecto.
+
+Situación detectada:
+  Stack definido:  {{STACK del CLAUDE.md}}
+  Templates:       No configurados
+
+Esto significa que voy a generar el scaffolding desde cero siguiendo
+las buenas prácticas del stack definido — sin aplicar plantillas
+propias de la empresa todavía.
+
+Opciones:
+  A) Continuar en modo "from scratch" (recomendado si es la primera app)
+     El scaffolding generado puede convertirse en el template base de la empresa.
+
+  B) Definir el template primero
+     Si ya existe un repo template, agrega en el CLAUDE.md:
+       ## Templates de código
+       - backend: https://gitlab.com/<grupo>/<repo-template>
+       - frontend: https://gitlab.com/<grupo>/<repo-template-fe>
+     Luego vuelve a ejecutar /new-app.
+
+¿Continuar en modo "from scratch"? (sí / no)
+```
+
+**Si dice sí → Modo from-scratch**: continuar con PASO 1 con una advertencia activa.
+**Si dice no → Abortar** con instrucciones para registrar el template primero.
+
+---
+
+### Caso C — Stack no definido en absoluto ❌
+
+No hay `STACK`, `BACKEND_FRAMEWORK` ni templates. El proyecto no tiene suficiente contexto.
+
+```
+✗  No puedo generar el scaffolding — faltan las definiciones mínimas del proyecto.
+
+Necesito al menos uno de estos:
+  - Templates de código configurados en el CLAUDE.md
+  - Stack tecnológico definido (BACKEND_FRAMEWORK, FRONTEND_FRAMEWORK, INFRA, DB)
+
+Soluciones:
+  1. Si ya tienes templates: agrégalos en el CLAUDE.md (ver guia-empresa.md §6)
+  2. Si es un proyecto nuevo sin nada definido aún:
+     - Completa las variables {{...}} en el CLAUDE.md (creado por dd-cli init)
+     - O ejecuta /init-context para generar el contexto del cliente desde los repos
+```
+
+**Abortar — no continuar.**
+
+---
+
 ## PASO 1 — Preguntas (una sola ronda)
 
 Presenta todas juntas:
@@ -108,10 +185,13 @@ Voy a scaffoldear la nueva app. Necesito 4 cosas:
 
 ## PASO 2 — Confirmar y mostrar plan
 
+Mostrar el modo activo y los archivos a generar:
+
 ```
 Voy a crear el scaffolding para: [SLUG]
 Tipo: [tipo]
 Stack: [STACK extraído del CLAUDE.md]
+Modo: [🔷 desde template: <nombre-template> | ⚠️ from-scratch (sin template)]
 Spec asociado: [nombre o "ninguno — completar después con /new-spec"]
 
 Archivos a generar:
@@ -120,6 +200,7 @@ Archivos a generar:
   [APPS_PATH]/[SLUG]/.ai/PROGRESS.md
   [APPS_PATH]/[SLUG]/CLAUDE.md
   [estructura base según STACK / INFRA]
+  [Si modo from-scratch: estructura completa de código base]
 
 ¿Continuar? (sí / ajustar algo)
 ```
@@ -220,7 +301,83 @@ Ejecutar `/end-session` desde el repositorio raíz para actualizar PROGRESS.md y
 
 ---
 
-## PASO 4 — Estructura base según stack
+## PASO 3b — Scaffolding from-scratch (solo si Caso B del PASO 0b)
+
+Si se confirmó el modo from-scratch, generar la estructura de código completa siguiendo las buenas prácticas del stack. No es solo el esqueleto — debe ser un punto de partida real y funcional.
+
+### Backend (NestJS ejemplo)
+
+```
+[APPS_PATH]/[SLUG]/
+├── src/
+│   ├── main.ts
+│   ├── app.module.ts
+│   ├── app.controller.ts
+│   ├── app.service.ts
+│   ├── health/
+│   │   └── health.controller.ts   ← health check para K8s
+│   └── config/
+│       └── configuration.ts       ← tipado de variables de entorno
+├── test/
+│   └── app.e2e-spec.ts
+├── package.json                   ← con las dependencias estándar del stack
+├── tsconfig.json
+├── .env.example                   ← variables requeridas, sin valores
+├── Dockerfile
+└── README.md
+```
+
+### Frontend (Angular ejemplo)
+
+```
+[APPS_PATH]/[SLUG]/
+├── src/
+│   ├── app/
+│   │   ├── app.component.ts
+│   │   ├── app.module.ts
+│   │   └── core/
+│   │       ├── auth/              ← integración con auth-profile del cliente
+│   │       └── http/              ← interceptors, error handling
+│   ├── environments/
+│   │   ├── environment.ts
+│   │   └── environment.prod.ts
+│   └── main.ts
+├── angular.json
+├── package.json
+└── Dockerfile
+```
+
+**Principios del from-scratch:**
+- El código debe compilar en verde desde el primer momento (`npm run build` pasa)
+- Incluir un health check mínimo funcional
+- Las variables de entorno documentadas en `.env.example`
+- El auth-profile del cliente integrado (leer `.devflow-context/auth-profiles/`)
+- Si hay CI/CD profile, generar el pipeline desde ese profile
+- Sin lógica de negocio — solo la estructura y los wires mínimos
+
+**Al finalizar, mostrar:**
+
+```
+⚠️  Scaffolding from-scratch completado.
+
+Este resultado es el candidato a convertirse en el template estándar
+de la empresa para apps de tipo [tipo].
+
+Próximo paso recomendado (Tech Lead):
+  1. Revisar y ajustar el código generado
+  2. Crear un repo template con este contenido:
+       git checkout -b template-base
+       # ajustar, limpiar valores específicos del proyecto
+       git push origin template-base
+  3. Registrar el template en el CLAUDE.md:
+       ## Templates de código
+       - [tipo]: https://gitlab.com/<grupo>/<slug>
+  4. La próxima vez que ejecutes /new-app, usará este template.
+```
+
+---
+
+## PASO 4 — Estructura de infra según stack
 
 Leer `INFRA` del CLAUDE.md del proyecto y generar la estructura de directorios apropiada:
 
@@ -251,34 +408,35 @@ Crear un archivo `[SLUG]/SETUP.md` con el checklist de infraestructura a complet
 
 ```
 Scaffolding generado: [APPS_PATH]/[SLUG]/
+Modo usado: [🔷 desde template: <nombre> | ⚠️ from-scratch]
 
 Archivos creados: [N]
   .ai/              (CONTEXT.md, SPEC.md, PROGRESS.md)
   CLAUDE.md
+  [código base si from-scratch]
   [estructura de infra según STACK]
 
 ────────────────────────────────────
 PRÓXIMOS PASOS:
 
-1. Crear el código fuente:
-   [instrucción específica según BACKEND_FRAMEWORK / FRONTEND_FRAMEWORK]
-
-2. Crear el SPEC maestro (si no existe):
-   /new-spec [SLUG]
-
-3. Derivar el .ai/SPEC.md:
+[Si modo template:]
+1. Crear el SPEC maestro:
+   /new-spec
+2. Derivar el .ai/SPEC.md:
    /derive-spec [spec-slug] [SLUG]
+3. Registrar la app en el sistema de autenticación
+   (ver auth-profiles en el CLAUDE.md del proyecto)
+4. Primer deploy: [instrucción según INFRA]
 
-4. Registrar la app en el sistema de autenticación / gateway del proyecto
-   (ver CLAUDE.md del proyecto para el proceso específico)
-
-5. Primer deploy:
-   [instrucción según INFRA]
+[Si modo from-scratch:]
+1. Verificar que compila: [comando según stack]
+2. Revisar y ajustar el scaffolding generado
+3. Crear el SPEC maestro: /new-spec
+4. (Tech Lead) Considerar convertir este scaffolding en template de la empresa
+   Ver instrucciones al final del PASO 3b.
 ────────────────────────────────────
 
-⚠️ Si generé archivos de infraestructura con credenciales o secrets:
-   - No commitear secrets con valores reales
-   - Aplicar directamente al entorno sin pasar por git
+⚠️ Secrets: nunca commitear valores reales. Usar .env.example como referencia.
 ```
 
 ---
