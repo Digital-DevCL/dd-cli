@@ -32,7 +32,7 @@ dd-cli watch         → barra   (pane separado, opcional)
 
 ```bash
 # Instalar desde el release público
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.3.0/devflow-ia-cli-0.3.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
 
 # Verificar
 dd-cli --version
@@ -44,7 +44,7 @@ dd-cli install
 ```
 
 > **¿Qué hace `dd-cli install`?**
-> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.3.0 ready`.
+> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.4.0 ready`.
 > Para desactivarla: `dd-cli uninstall`
 
 ---
@@ -67,7 +67,7 @@ DevFlow IA — init
 ✓ Detectado Claude Code en /Users/jorge/.claude
 ✓ Creado .devflow/ con session.json inicial (schema_version: 2)
 ✓ Skills instaladas en ~/.claude/commands/devflow-ia
-  20 skills (v0.3.0)
+  20 skills (v0.4.0)
 ✓ Hooks configurados en .claude/settings.json
 ✓ CLAUDE.md generado con auto-onboarding
   Edita las variables {{...}} con los datos del proyecto
@@ -339,7 +339,40 @@ Para integrar con Stripe, Auth0, TOKU, webhooks de terceros, etc.
 
 ---
 
-## 6. Al terminar el día
+## 6. Soporte multi-stack (v0.4.0)
+
+A partir de v0.4.0, todas las skills de análisis entienden distintos stacks. No importa si el repo usa Laravel, Django, .NET, Spring o Go — el flujo es idéntico.
+
+### `/init-repo-context` detecta automáticamente
+
+| Lo que encuentra en el repo | Stack que detecta |
+|---|---|
+| `composer.json` | PHP / Laravel |
+| `requirements.txt` / `manage.py` | Python / Django |
+| `*.csproj` / `Program.cs` | .NET / C# |
+| `pom.xml` / `build.gradle` | Java / Spring |
+| `go.mod` | Go |
+| `package.json` | Node.js / NestJS / Next.js |
+
+Para cada stack ejecuta comandos específicos: `php artisan list`, `python manage.py`, `dotnet test`, `mvn`, etc.
+
+### `dd-cli new-hdu` + `/design-hdu` trabajan en conjunto
+
+```bash
+# dd-cli new-hdu crea el archivo placeholder
+dd-cli new-hdu "Mi feature"
+# → docs/hdus/HDU-001-mi-feature.md  (con frontmatter base)
+# → lanza Claude Code con /devflow-ia:design-hdu automáticamente
+
+# La skill detecta que hay un archivo ya creado (DEVFLOW_HDU_PATH)
+# y lo completa en vez de crear uno nuevo
+```
+
+Si prefieres invocar la skill manualmente, también funciona: `/devflow-ia:design-hdu` sin `dd-cli new-hdu` crea el archivo desde cero (comportamiento original).
+
+---
+
+## 7. Al terminar el día
 
 Lo normal es que la skill `/end-session` dentro de Claude Code lo haga todo (commit + push + resumen). Pero si cerraste el terminal sin ejecutarla:
 
@@ -357,7 +390,7 @@ Sesión cerrada
 
 ---
 
-## 7. Barra de estado opcional
+## 8. Barra de estado opcional
 
 Si quieres ver más detalle en tiempo real (útil para pair programming o demos):
 
@@ -378,7 +411,7 @@ Se actualiza cada 5 segundos. `Ctrl+C` para cerrar.
 
 ---
 
-## 8. Casos especiales
+## 9. Casos especiales
 
 ### Cerraste el terminal sin terminar la sesión
 
@@ -460,9 +493,9 @@ dd-cli doctor --for=brownfield-refactor
 
 ---
 
-## 9. Gestión de skills (avanzado)
+## 10. Gestión de skills (avanzado)
 
-Las 19 skills son las herramientas que Claude usa dentro de tu sesión. No las modificas directamente — el CLI las gestiona.
+Las 20 skills son las herramientas que Claude usa dentro de tu sesión. No las modificas directamente — el CLI las gestiona.
 
 ### Ver qué skills están instaladas
 
@@ -471,7 +504,7 @@ dd-cli skills list
 ```
 
 ```
-Skills instaladas en ~/.claude/skills/devflow-ia (v0.2.0)
+Skills instaladas en ~/.claude/commands/devflow-ia (v0.4.0)
 
   Digital-Dev:
     ⬛ /new-spec            Spec         opus
@@ -506,7 +539,7 @@ dd-cli skills install
 
 ---
 
-## 10. Crear una HDU desde el CLI (sin la APP)
+## 11. Crear una HDU desde el CLI (sin la APP)
 
 Si no tienes acceso a la APP de DevFlow IA, puedes crear HDUs directamente desde el CLI:
 
@@ -530,7 +563,7 @@ dd-cli start-session HDU-001
 
 ---
 
-## 11. Referencia rápida de comandos
+## 12. Referencia rápida de comandos
 
 | Comando | Para qué | Frecuencia |
 |---|---|---|
@@ -552,7 +585,7 @@ dd-cli start-session HDU-001
 
 ---
 
-## 12. Preguntas frecuentes
+## 13. Preguntas frecuentes
 
 **¿Tengo que recordar todos los comandos?**
 No. `dd-cli next` te dice exactamente qué hacer. `dd-cli help-ctx` te muestra solo los comandos relevantes para tu situación actual.

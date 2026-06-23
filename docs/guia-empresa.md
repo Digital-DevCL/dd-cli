@@ -407,12 +407,61 @@ Esto garantiza que cada app nueva de la empresa nace con los mismos estándares 
 
 ---
 
-## 7. Instalación y configuración inicial
+## 7. Soporte multi-stack (v0.4.0)
+
+DevFlow IA funciona con cualquier stack tecnológico. Las skills de análisis detectan el lenguaje y framework automáticamente y adaptan su comportamiento.
+
+### Stacks soportados
+
+| Stack | Archivos que detecta | Frameworks |
+|---|---|---|
+| **Node.js** | `package.json` | NestJS, Express, Next.js, Angular |
+| **PHP** | `composer.json` | Laravel, Symfony |
+| **Python** | `requirements.txt`, `manage.py`, `pyproject.toml` | Django, FastAPI, Flask |
+| **.NET** | `*.csproj`, `*.sln` | ASP.NET Core, MVC |
+| **Java/Kotlin** | `pom.xml`, `build.gradle` | Spring Boot |
+| **Go** | `go.mod` | Gin, Echo, net/http |
+| **Generic / Legacy** | ninguno de los anteriores | Entrevista manual |
+
+### Qué significa para cada rol
+
+**Consultor Digital-Dev:**
+`/init-context` detecta automáticamente el stack de cada repo del cliente via API. No hay que configurar el lenguaje — lo detecta solo.
+
+**Tech Lead:**
+Al ejecutar `/init-repo-context` sobre un repo Laravel o Django, la skill corre los comandos adecuados (`php artisan`, `python manage.py`, `dotnet`, `mvn`) en vez de buscar `package.json`. El REPO-CONTEXT.md generado tiene la misma estructura independientemente del stack.
+
+**Dev:**
+El flujo de skills es idéntico para todos los stacks. La única diferencia es lo que Claude detecta al analizar el código. No hay comandos distintos para un proyecto PHP vs uno Node.
+
+### Ejemplo: flujo brownfield-feature en Laravel (IPRSA)
+
+```
+dd-cli start-session HDU-001 --type=brownfield-feature
+
+En Claude Code:
+  /devflow-ia:init-repo-context
+  → Detecta: php-laravel (composer.json + app/ + routes/api.php)
+  → Lee: estructura MVC, Eloquent models, jobs, events
+  → Genera: .ai/REPO-CONTEXT.md con stack correcto
+
+  /devflow-ia:new-spec
+  → Lee el REPO-CONTEXT.md generado
+  → No pregunta sobre el stack (ya lo sabe)
+  → Genera SPEC técnica considerando convenciones Laravel
+
+  /devflow-ia:opsx:propose / apply / release-check
+  → Idéntico a cualquier otro stack
+```
+
+---
+
+## 8. Instalación y configuración inicial
 
 ### Paso 1 — Instalar el CLI (una vez por máquina, cada persona del equipo)
 
 ```bash
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.3.0/devflow-ia-cli-0.3.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
 dd-cli install        # activa la statusline en Claude Code
 # reiniciar Claude Code
 ```
@@ -465,7 +514,7 @@ dd-cli doctor
 
 ```
 ✓ Claude Code detectado
-✓ Skills instaladas (20 skills v0.3.0)
+✓ Skills instaladas (20 skills v0.4.0)
 ✓ Hooks configurados
 ✓ Cliente conectado: <empresa>
 ✓ App catalog: N apps
@@ -474,7 +523,7 @@ dd-cli doctor
 
 ---
 
-## 8. Flujo de trabajo típico de un sprint
+## 9. Flujo de trabajo típico de un sprint
 
 ### Lunes — Refinamiento
 
@@ -520,13 +569,13 @@ Tech Lead:
 
 ---
 
-## 9. Onboarding de un dev nuevo
+## 10. Onboarding de un dev nuevo
 
 Un dev nuevo en un equipo que ya usa DevFlow IA necesita:
 
 ```bash
 # 1. Instalar el CLI
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.3.0/devflow-ia-cli-0.3.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
 dd-cli install
 
 # 2. Registrar la empresa (el Tech Lead le pasa el PAT o la URL del repo de contexto)
@@ -549,7 +598,7 @@ El dev no necesita entender toda la arquitectura de la empresa para arrancar: la
 
 ---
 
-## 10. Seguridad y credenciales
+## 11. Seguridad y credenciales
 
 | Archivo | Contiene | Commitear |
 |---|---|---|
@@ -566,7 +615,7 @@ Los tokens API deben tener el mínimo de permisos necesario:
 
 ---
 
-## 11. Problemas frecuentes al configurar una empresa nueva
+## 12. Problemas frecuentes al configurar una empresa nueva
 
 **"Claude no sabe qué apps tiene la empresa"**
 → El `CLAUDE.md` del proyecto no está conectado al contexto del cliente. Verificar con `dd-cli doctor` y revisar si `dd-cli init --client=<empresa>` fue ejecutado en ese repo.
