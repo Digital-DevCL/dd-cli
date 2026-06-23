@@ -1,15 +1,16 @@
 ---
 name: explore-repo
-description: Analiza el repo actual y genera un reporte de stack, estructura, endpoints y dependencias
+description: Analiza el repo actual y genera un reporte de stack, estructura, endpoints y dependencias. Multi-stack.
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.1.0
+version: 0.4.0
 category: Exploration
 model: opus
 model_rationale: Análisis profundo del codebase desconocido — detectar patrones, identificar entry points implícitos, distinguir señal de ruido en código legacy
 fallback_model: sonnet
 applies_to_dev_types: [brownfield-feature, brownfield-refactor, modernizacion, integracion-externa]
+supported_stacks: [node, php-laravel, python-django, dotnet, java-spring, go, generic]
 reads:
   - "<repo>/**/*  (lectura solamente)"
 writes:
@@ -46,8 +47,9 @@ Sé directo. Sin introducción larga. El reporte debe ser útil para alguien que
 
 1. **Read-only** — nunca modifica código
 2. **Tone factual** — sin opiniones, sin "deberíamos refactorizar X"
-3. **Detecta lenguaje** — no asume que es JS/TS si no lo es
+3. **Detecta lenguaje** — no asume que es JS/TS. Buscar: `package.json`, `composer.json`, `requirements.txt`, `*.csproj`, `pom.xml`, `go.mod`, `Gemfile`
 4. **Cita paths** — siempre referencias archivos con su path para que el dev pueda navegar
+5. **Adaptarse al stack** — los endpoints se buscan donde corresponda (routes/api.php en Laravel, urls.py en Django, Controllers en .NET, etc.)
 
 ## Variables que lee de CLAUDE.md
 

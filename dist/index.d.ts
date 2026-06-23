@@ -472,6 +472,6 @@ declare function hasSession(projectRoot: string): boolean;
  * la lógica core sin invocar el binario.
  */
 
-declare const CLI_VERSION = "0.3.0";
+declare const CLI_VERSION = "0.4.0";
 
 export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, findDevFlowProjectRoot, formatDoctorOutput, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };

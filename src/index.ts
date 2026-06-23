@@ -11,4 +11,4 @@ export * from './enforcement/evaluator.js';
 export * from './utils/paths.js';
 export * from './utils/session-io.js';
 
-export const CLI_VERSION = '0.3.0';
+export const CLI_VERSION = '0.4.0';

@@ -1,19 +1,20 @@
 ---
 name: capture-baseline
-description: Captura tests, métricas y contratos del módulo objetivo antes de refactor (genera .ai/BASELINE.md)
+description: Captura tests, métricas y contratos del módulo objetivo antes de refactor (genera .ai/BASELINE.md). Multi-stack.
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.1.0
+version: 0.4.0
 category: Quality
 model: opus
 model_rationale: Decidir qué contratos preservar, capturar golden tests representativos y evaluar risk_level es razonamiento de alta consecuencia (si falla, el refactor rompe en prod)
 fallback_model: sonnet
 applies_to_dev_types: [brownfield-refactor]
+supported_stacks: [node, php-laravel, python-django, dotnet, java-spring, go, generic]
 reads:
   - "<repo>/<target_module>/**/*"
   - "<repo>/.ai/REPO-CONTEXT.md"
-  - "<repo>/tests/**/*  package.json  jest.config.*  vitest.config.*"
+  - "<repo>/tests/**/*  (config + archivos de test según stack)"
 writes:
   - "<repo>/.ai/BASELINE-<modulo>.md"
   - "<repo>/.ai/golden/<modulo>/  (snapshots opcionales)"
@@ -21,7 +22,7 @@ mcp_tools:
   - devflow_save_baseline  (modo platform — enlaza a HDU)
 ---
 
-# `/capture-baseline` — Snapshot pre-refactor
+# `/capture-baseline` — Snapshot pre-refactor (multi-stack)
 
 ## Cuándo usarla
 
@@ -46,10 +47,8 @@ contra el que `/release-check(R)` valida después.
 
 ## Contrato del output
 
-El archivo generado **DEBE** cumplir el schema fijo definido en:
-`_Empresa/Productos/DevFlow-IA/schemas/baseline.schema.md`
+El archivo generado **DEBE** cumplir el schema fijo (8 secciones obligatorias):
 
-**Estructura obligatoria (8 secciones):**
 1. Identidad del refactor
 2. Tests existentes
 3. Contratos públicos a preservar
@@ -63,6 +62,8 @@ Frontmatter YAML: `schema_version`, `generated_by`, `captured_at`, `target_modul
 `target_files`, `risk_level`, `tests_count`, `coverage_baseline`, `contracts_count`,
 `locked_by`, `locked_at` (null hasta Gate G1.5).
 
+---
+
 ## Proceso
 
 ### Paso 1 — Identificación del módulo
@@ -72,50 +73,138 @@ Si se pasa `<modulo>` como arg → usa ese path. Si no → entrevista:
 ```
 ¿Qué módulo vas a refactorizar?
   1) Path al directorio o archivo principal
-  2) Slug del módulo (busca en src/modules/<slug> o src/<slug>)
+  2) Slug del módulo
 ```
 
-Lee el path:
-- Lista archivos en scope (mostrar al dev para confirmar)
-- Detecta archivos del módulo que NO se deben tocar (out of scope)
-- Lee `.ai/REPO-CONTEXT.md` para entender capas, convenciones, integraciones
+Lee el path, lista archivos en scope (mostrar al dev para confirmar), y lee `.ai/REPO-CONTEXT.md` para entender capas, convenciones y el stack detectado en el análisis previo.
 
-### Paso 2 — Detección de tests
+---
 
-Busca tests que cubren los archivos del módulo:
-- Files matching `*.spec.*`, `*.test.*`, `*-spec.*`, `__tests__/*` en directorios cercanos
-- Lee `package.json` o config para identificar test runner (jest, vitest, mocha, jasmine)
-- Si jest config tiene coverage → leer coverage actual del módulo
-- Cuenta tests: `grep -c "it\\|test\\|describe"` ajustado por framework
+### Paso 2 — Detección del stack y test runner
+
+Leer `primary_language` y `framework` del `.ai/REPO-CONTEXT.md` si existe. Si no, detectar:
+
+```bash
+test -f package.json && echo "node"
+test -f composer.json && echo "php"
+test -f manage.py -o -f requirements.txt && echo "python"
+find . -name "*.csproj" -maxdepth 3 | head -1 && echo "dotnet"
+test -f pom.xml -o -f build.gradle && echo "java"
+test -f go.mod && echo "go"
+```
+
+#### Comandos de test por stack
+
+**Node (Jest / Vitest):**
+```bash
+# Detectar runner
+grep -E '"test"' package.json | head -1
+test -f vitest.config.ts && echo "vitest"
+test -f jest.config.js -o -f jest.config.ts && echo "jest"
+
+# Contar tests en el módulo
+grep -rE "(it|test|describe)\(" <target_module> --include="*.spec.*" --include="*.test.*" | wc -l
+
+# Coverage del módulo (si está configurado)
+# jest: npx jest --coverage --collectCoverageFrom="<target>/**" --testPathPattern="<target>"
+# vitest: npx vitest run --coverage <target>
+```
+
+**PHP / Laravel (PHPUnit / Pest):**
+```bash
+# Detectar runner
+test -f phpunit.xml -o -f phpunit.xml.dist && echo "phpunit"
+test -f ./vendor/bin/pest && echo "pest"
+
+# Contar tests
+find tests/ -name "*.php" | xargs grep -l "function test_\|#\[Test\]\|@test" | wc -l
+grep -rE "public function test_|#\[Test\]|@test" tests/ --include="*.php" | wc -l
+
+# Correr tests del módulo (NO correr — solo identificar)
+# phpunit --filter=<NombreTest>
+# ./vendor/bin/pest --filter="<patrón>"
+```
+
+**Python (pytest / unittest):**
+```bash
+# Detectar runner
+test -f pytest.ini -o -f pyproject.toml && grep -q pytest pytest.ini pyproject.toml 2>/dev/null && echo "pytest"
+grep -rE "class Test|def test_" tests/ --include="*.py" | wc -l
+
+# Coverage
+# pytest --cov=<módulo> --cov-report=term
+```
+
+**.NET (xUnit / NUnit / MSTest):**
+```bash
+# Detectar proyectos de test
+find . -name "*.Tests.csproj" -o -name "*.Test.csproj" | head -5
+grep -rE "\[Fact\]|\[Test\]|\[Theory\]" --include="*.cs" | wc -l
+
+# Correr (NO correr — identificar)
+# dotnet test --filter "FullyQualifiedName~<Namespace>"
+```
+
+**Java / Spring (JUnit):**
+```bash
+# Detectar tests
+find src/test -name "*Test.java" | wc -l
+grep -rE "@Test|@ParameterizedTest" src/test/ --include="*.java" | wc -l
+
+# Cobertura con Jacoco
+# mvn test -pl <módulo>
+```
+
+**Go:**
+```bash
+# Tests en Go
+find <target_module> -name "*_test.go" | wc -l
+grep -c "^func Test" <target_module>/*_test.go 2>/dev/null
+
+# Coverage
+# go test -coverprofile=coverage.out ./<target_module>/...
+```
 
 Si `tests_count == 0`:
 - Marca `risk_level: high`
-- Mostrar warning explícito al dev
+- Mostrar warning explícito
 - Sección 7 (golden tests) se vuelve OBLIGATORIA (mínimo 3 capturas)
+
+---
 
 ### Paso 3 — Contratos públicos (CRÍTICO)
 
-Identifica qué exporta el módulo al exterior:
+Identifica qué expone el módulo al exterior. Los patrones varían por stack:
 
-**Endpoints HTTP** (si es controller):
-- Decoradores `@Controller`, `@Get`, `@Post`, etc.
-- Para cada ruta: request schema, response schema, headers requeridos, guards
+**Endpoints HTTP:**
+```
+Node/NestJS:  decoradores @Controller, @Get, @Post, etc.
+PHP/Laravel:  routes/web.php y routes/api.php que apunten al módulo
+Python:       urls.py, @app.route / @router.get (FastAPI)
+.NET:         [ApiController], [Route], [HttpGet/Post/...]
+Java/Spring:  @RestController, @RequestMapping, @GetMapping, etc.
+Go:           http.HandleFunc, router.GET/POST, etc.
+```
 
-**Funciones / clases exportadas**:
-- `export function`, `export class`, `export interface`, `export type`
-- Para cada uno: firma completa, dónde se importa en el resto del repo (grep)
+Para cada ruta: request schema, response schema, headers requeridos, auth middleware.
 
-**Eventos publicados**:
-- Detectar `EventEmitter`, `publishMessage`, `rabbitmq.publish`, similar
-- Payload schema, listeners conocidos
+**Funciones / clases exportadas:**
+- Rastrear exports públicos del módulo y dónde se consumen en el resto del repo
 
-**Schema DB**:
+**Eventos publicados** (queue, mensajería):
+- Detectar patrones de eventos según el framework (EventEmitter, queue jobs, etc.)
+
+**Schema DB:**
 - Tablas que el módulo LEE y/o ESCRIBE
-- Columnas que afectan el contrato
-- SQL/procedures invocadas
+- Columnas que afectan el contrato externo
 
-**Pregunta al dev** las cosas que no se detectan automáticamente:
-- ¿Hay contratos públicos NO detectados que querés agregar?
+**Preguntar al dev** lo que no se detecta automáticamente:
+```
+¿Hay contratos públicos NO detectados que quieres agregar?
+(webhooks, cron jobs, eventos de dominio, integraciones implícitas)
+```
+
+---
 
 ### Paso 4 — Métricas de performance
 
@@ -123,29 +212,39 @@ Si `--skip-perf` → marca sección como "No disponible".
 Si no:
 - Buscar dashboards (Grafana, NewRelic, Datadog) referenciados en repo
 - Preguntar al dev por latencia P50/P95/P99 conocida
-- Preguntar throughput nominal
-- Preguntar tasa de error
+- Preguntar throughput nominal y tasa de error
 
 Si nada disponible → marcar "No disponible" + warning de que `/release-check(R)` no podrá validar mejora cuantitativa.
+
+---
 
 ### Paso 5 — Dependencias in/out
 
 **Out** (de qué depende el módulo):
-- `grep -E "import.*from" <target_files>`
-- Filtrar imports del propio módulo
-- Listar imports externos al módulo
+```
+Node:   grep -E "import.*from" <target_files>
+PHP:    grep -E "use " <target_files> | grep -v "// "
+Python: grep -E "^import |^from " <target_files>
+.NET:   grep -E "^using " <target_files>
+Java:   grep -E "^import " <target_files>
+Go:     grep -E '"' <target_files>.go | grep import
+```
 
-**In** (qué depende del módulo):
-- `grep -rE "from ['\"](.*<modulo>)" src/`
-- Listar archivos que importan del módulo
+**In** (qué depende del módulo): grep inverso buscando imports del módulo en el resto del repo.
 
-### Paso 6 — Estado de calidad
+---
 
-- LoC: `wc -l <target_files>`
-- Cyclomatic complexity: ejecutar herramienta del stack (`eslint-complexity`, `radon`, etc.) si disponible
-- Lint count: `npm run lint <target_files>` (errors + warnings)
-- TypeScript: contar `any`, `@ts-ignore`
-- `npm audit` filtrado
+### Paso 6 — Estado de calidad pre-refactor
+
+```
+LoC:               wc -l <target_files> (por stack)
+Cyclomatic:        herramienta según stack (eslint-plugin-complexity, radon cc, cognitivecomplexity)
+Lint count:        runner según stack (eslint, phpcs, flake8, dotnet-format, checkstyle)
+Type safety:       any/@ts-ignore (Node), type hints (Python), etc.
+Smell detectados:  métodos >50 LOC, clases >500 LOC, duplicación obvia
+```
+
+---
 
 ### Paso 7 — Golden tests (obligatorio si `tests_count < 5`)
 
@@ -162,9 +261,9 @@ Modo --record-mode (sin tests / pocos):
 
 Si `tests_count < 5` y golden_count < 3 → **bloqueo**, no permite continuar.
 
-### Paso 8 — Decisiones del dev (checklist)
+---
 
-Mostrar checklist al dev. Cada item requiere [x]:
+### Paso 8 — Decisiones del dev (checklist)
 
 ```
 [ ] He revisado sección 3 (Contratos públicos) — está completa
@@ -175,65 +274,28 @@ Mostrar checklist al dev. Cada item requiere [x]:
 
 Justificación obligatoria si `risk_level == high`.
 
+---
+
 ### Paso 9 — Lock y persistencia
 
 ```
 1. Validar schema completo
 2. Escribir <repo>/.ai/BASELINE-<modulo>.md
-3. NO setear locked_at todavía — eso lo hace Gate G1.5 (Tech Lead aprueba en plataforma)
-4. Si modo platform:
-   → devflow_save_baseline({...})
-   → Plataforma notifica a Tech Lead para aprobar
-5. Si modo local:
-   → Pedir al dev que solicite firma del Tech Lead y la ponga en sección 8
+3. NO setear locked_at todavía — eso lo hace Gate G1.5 (Tech Lead aprueba)
+4. Si modo platform: → devflow_save_baseline + notificar Tech Lead
+5. Si modo local: → pedir al dev que solicite firma del Tech Lead
 6. session.json:
    - baseline_path = ".ai/BASELINE-<modulo>.md"
-   - flow_state: si tiene REPO-CONTEXT → repo_mapped + baseline_ready (cuando lock)
+   - flow_state: → baseline_ready (cuando lock)
 ```
+
+---
 
 ## Reglas duras
 
-1. **Bloqueante**: hasta que `locked_at != null` (Gate G1.5), `/new-spec(R)` no avanza
+1. **Bloqueante**: hasta `locked_at != null`, `/new-spec(R)` no avanza
 2. **Soporta "0 tests" explícito** — no se bloquea por no tener tests, pero requiere golden tests
-3. **risk_level auto-derivado**: tests_count < 5 OR coverage < 30% OR contracts_count > 10 → `high`
-4. **No re-genera silenciosamente**: archivo existente requiere `--re-capture --reason="..."` con audit
+3. **risk_level auto-derivado**: `tests_count < 5 OR coverage < 30% OR contracts_count > 10` → `high`
+4. **No re-genera silenciosamente**: archivo existente requiere `--re-capture --reason`
 5. **Read-only sobre el código** — escribe solo en `.ai/`
-
-## Outputs esperados al usuario
-
-```
-✓ Baseline capturado: src/modules/contratos/calculo-mora
-  risk_level: high (tests_count: 0)
-  contracts_count: 4
-  schema_version: 1
-
-Resumen:
-  Tests existentes: 0  ⚠
-  Coverage: 0%
-  Contratos públicos detectados: 4
-  Golden tests capturados: 3 (modo --record-mode)
-  LoC: 348  ·  Cyclomatic: 47
-  Métricas perf: No disponible
-
-⚠  risk_level: high — refactor requiere aprobación explícita de Tech Lead
-   Gate G1.5: pedir firma del Tech Lead en sección 8 antes de /new-spec(R)
-
-Archivo: .ai/BASELINE-calculo-mora.md
-Golden tests: .ai/golden/calculo-mora/ (3 casos)
-Siguiente paso: solicitar firma Tech Lead → luego /new-spec(R)
-```
-
-## Variables que lee de CLAUDE.md
-
-| Variable | Uso |
-|---|---|
-| `STACK` | Identificar test runner y herramientas de calidad |
-| `BACKEND_FRAMEWORK` / `FRONTEND_FRAMEWORK` | Detectar patrones del framework |
-
-## Variables que lee de session.json
-
-| Campo | Uso |
-|---|---|
-| `dev_type` | Aborta si != `brownfield-refactor` |
-| `feature_id` | Linkea BASELINE a la HDU en plataforma |
-| `apps_affected` | Valida que el módulo es parte de las apps afectadas |
+6. **Stack-agnóstico en schema, stack-específico en detección** — mismo output sin importar el lenguaje

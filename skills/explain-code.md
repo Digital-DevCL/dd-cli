@@ -1,10 +1,10 @@
 ---
 name: explain-code
-description: Explica un archivo o fragmento de código en dos niveles (técnico y negocio)
+description: Explica un archivo o fragmento de código en dos niveles (técnico y negocio). Funciona con cualquier lenguaje.
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.1.0
+version: 0.4.0
 category: Exploration
 model: sonnet
 model_rationale: Balanceada — explicar código requiere comprensión pero no decisiones de alta consecuencia. Sonnet maneja bien el doble registro técnico/negocio

@@ -1,15 +1,15 @@
 {
-  "capture-baseline.md": "fefbcfb0a8bb95edded1f5e54f7cbe8da396b45c7727e9d0235b1266621a640e",
+  "capture-baseline.md": "8c80b19e8a88ca7183b1e4ce6cf8e195f7790a909236bd7efe80ca2e94ac46c5",
   "capture-req.md": "dbe5acd1da276a8c222f305a485166d2a8d0e9105418fc0b2186f6f6badee8bf",
   "derive-spec.md": "547fc3db9de85ae7cf876ae5977e551269f2d4057998b729df7ebfd0cc6bb232",
-  "design-hdu.md": "63b1fb2204fa3acd52407b3ba54363d43845f655b2e82586c9a195a570936d14",
+  "design-hdu.md": "589d936ed23779ed05a1eb8bbaa0de25b5c657c6d5a9ced6c2f2f7ceb6d6baee",
   "end-session.md": "043a22fa32dc3c16105e1b216d18d3d085b99fed7ab30922594a8208c739638d",
   "enrich-us.md": "0c360a97264bdf70573e95bc3aef19dbd9e32033229e8bfd068aa6195548c0ce",
-  "explain-code.md": "34feb57b9bfc0adc649022d6587deec808c69f6fd8d92a79974ecced9f37bb8a",
-  "explore-repo.md": "400201a6655d9d991e754f085869399d8110798333ad942ff66f1713d03c6989",
+  "explain-code.md": "d8fc7a4ad2eb4ab7a5363c67e548adc566bce72baa58cd2035244be542349169",
+  "explore-repo.md": "bb79f2b88be93467e80dfd909cc35d17dbe70ef4ebe7c0f63db1ac06c11ac04b",
   "init-context.md": "8a2a6322599b24893c901f70f14574ffaf29e8edee8cea50b966ec528cf21e17",
-  "init-repo-context.md": "e1399de6f9cdc0f1c4a01d030251facc68ace8cb62b6511de204a16e35316155",
-  "map-service.md": "44e9c28204ca5bae165b115170c2dce9154238db7a9478f8111a50921f155d8e",
+  "init-repo-context.md": "f90976dfcccb4e6a8248d2e72e9773c4dfe1ae7bd8ce27163ee3c59de3e0a2f9",
+  "map-service.md": "046e425c72b6cbb6c64e5694d358d4d5671cc37fb53538b262d6923e03b917f4",
   "new-app.md": "b28f773e2beb9a58ed7d28a9c2213a68e9cba284c7c89586bd50f882624c0ad8",
   "new-spec.md": "176edb6cfa2305e79c4d8e861a3a8cbee15675c9b532b705fc1db33265c87ce5",
   "opsx/apply.md": "c08acfd6c319cc3ada96c77cb2007ca6131afa1c0b2bad127fee48126f844eef",
@@ -18,5 +18,5 @@
   "opsx/propose.md": "4953d4d16c45f54e64bb6558a3d0195082fbc52c0ec710cc115f7e759416b9e4",
   "plan-sprint.md": "00b27c4a3cf787820d868b4efebe88802d74c738dea7cd6bbf7e20dfb617db9b",
   "release-check.md": "1907a6874537b347c160cabc79b046936354cd85c316280d026789e47da993a7",
-  "trace-flow.md": "ba323bd4ee70ac2e31895eb29aa41fbc1b4f4fd93812f76e7265ea157071473d"
+  "trace-flow.md": "447d57eb6e27ec02de477c11ce441ccc88fc187cf9f03a4620e0d28d25fd94af"
 }

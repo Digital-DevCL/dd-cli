@@ -586,7 +586,7 @@ function hasSession(projectRoot) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.3.0";
+var CLI_VERSION = "0.4.0";
 export {
   APP_ORIGINS,
   CLI_VERSION,
