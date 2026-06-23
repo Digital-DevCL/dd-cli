@@ -413,6 +413,25 @@ declare function formatDoctorOutput(results: EvaluationResult[], devType: Sessio
  * Estrategia: buscar `.devflow/` ascendiendo, o si no existe, buscar `package.json` / `.git`.
  */
 declare function getProjectRoot(startDir?: string): string;
+/**
+ * Busca `.devflow/session.json` ascendiendo desde `startDir` y retorna el root.
+ * NO confunde con `~/.devflow/` (config global del CLI), ya que solo se considera
+ * "proyecto DevFlow" si tiene `session.json`.
+ *
+ * Retorna null si no hay proyecto DevFlow en la jerarquía.
+ *
+ * Útil para statusline + install (debemos saber si estamos REALMENTE dentro de un
+ * proyecto DevFlow o en un repo cualquiera).
+ */
+declare function findDevFlowProjectRoot(startDir?: string): string | null;
+/**
+ * `true` si el path indicado (o cwd por default) está dentro de un proyecto DevFlow IA.
+ */
+declare function isDevFlowProject(startDir?: string): boolean;
+/**
+ * Path del settings.json GLOBAL de Claude Code (~/.claude/settings.json).
+ */
+declare function getClaudeGlobalSettingsPath(): string;
 declare function getSessionPath(projectRoot: string): string;
 declare function getDevflowDir(projectRoot: string): string;
 declare function getHeartbeatLogPath(projectRoot: string): string;
@@ -453,6 +472,6 @@ declare function hasSession(projectRoot: string): boolean;
  * la lógica core sin invocar el binario.
  */
 
-declare const CLI_VERSION = "0.2.0";
+declare const CLI_VERSION = "0.3.0";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, formatDoctorOutput, getClaudeCommandsDir, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };
+export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, findDevFlowProjectRoot, formatDoctorOutput, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };

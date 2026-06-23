@@ -13,12 +13,13 @@
  *   - Sesión ended: "✓ HDU-128 cerrada · 3h 42m  ⬢ brownfield-feature"
  *   - Anomalía: "⚠ HDU-128 · paso 2/8 · falta REPO-CONTEXT.md · → /init-repo-context"
  */
-import { getProjectRoot } from '../utils/paths.js';
+import { findDevFlowProjectRoot } from '../utils/paths.js';
 import { loadSession } from '../utils/session-io.js';
 import { detectFlowState } from '../flow-state/detect.js';
 import { getStageContext } from '../flow-state/flow-stages.js';
 import { evaluateRules, partition } from '../enforcement/evaluator.js';
 import { devTypeBadge } from '../utils/output.js';
+import { CLI_VERSION } from '../index.js';
 
 function formatDuration(startedAt: string): string {
   const start = new Date(startedAt).getTime();
@@ -33,11 +34,12 @@ function formatDuration(startedAt: string): string {
 }
 
 export function runStatusline(): string {
-  let projectRoot: string;
-  try {
-    projectRoot = getProjectRoot();
-  } catch {
-    return 'DevFlow IA';
+  // Caso C — fuera de un proyecto DevFlow IA: branding minimal.
+  // Permite que la statusline esté instalada globalmente sin contaminar
+  // proyectos que no usan el método.
+  const projectRoot = findDevFlowProjectRoot();
+  if (!projectRoot) {
+    return `DevFlow IA · v${CLI_VERSION} ready`;
   }
 
   let session;
@@ -47,7 +49,7 @@ export function runStatusline(): string {
     return 'DevFlow IA · session.json inválido · revisa .devflow/';
   }
 
-  // Sin sesión
+  // Caso B — proyecto DevFlow IA sin sesión activa
   if (!session || !session.started_at) {
     return 'DevFlow IA · sin sesión · ejecuta: dd-cli start-session <HDU-id>';
   }

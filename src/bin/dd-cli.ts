@@ -19,6 +19,9 @@ import { runInitClient } from '../commands/init-client.js';
 import { runPullContext } from '../commands/pull-context.js';
 import { runDoctorCmd } from '../commands/doctor-cmd.js';
 import { runWatch } from '../commands/watch.js';
+import { runInstall, runUninstall } from '../commands/install-cmd.js';
+import { runFlow } from '../commands/flow-cmd.js';
+import { runNewHdu } from '../commands/new-hdu-cmd.js';
 
 const program = new Command();
 
@@ -52,6 +55,45 @@ program
       console.error(e instanceof Error ? e.message : String(e));
       process.exit(10);
     }
+  });
+
+program
+  .command('install')
+  .description('Configura la statusline DevFlow IA globalmente (~/.claude/settings.json)')
+  .option('--force', 'Sobrescribe statusLine existente', false)
+  .action(async (opts) => {
+    try { process.exit(await runInstall({ force: opts.force })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('uninstall')
+  .description('Remueve la statusline DevFlow IA del settings.json global')
+  .action(async () => {
+    try { process.exit(await runUninstall()); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('flow')
+  .description('Muestra el viaje completo del método para el dev_type activo (o uno hipotético)')
+  .option('--type <type>', 'dev_type a visualizar: greenfield | brownfield-feature | brownfield-refactor | modernizacion | integracion-externa')
+  .option('--all', 'Muestra resumen de los 5 dev_types', false)
+  .action((opts) => {
+    try { process.exit(runFlow({ type: opts.type, all: opts.all })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('new-hdu <title>')
+  .alias('new-feature')
+  .description('Crea una HDU desde el template y lanza Claude con /devflow-ia:design-hdu')
+  .option('--type <type>', 'dev_type sugerido (Tech Lead confirma en design-hdu)')
+  .option('--no-claude', 'No lanzar claude — solo crear el archivo', false)
+  .action(async (title, opts) => {
+    try {
+      process.exit(await runNewHdu(title, { type: opts.type, noClaude: opts.claude === false }));
+    } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
 program

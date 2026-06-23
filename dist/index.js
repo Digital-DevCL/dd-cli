@@ -480,6 +480,27 @@ function getProjectRoot(startDir = process.cwd()) {
   }
   return path3.resolve(startDir);
 }
+function findDevFlowProjectRoot(startDir = process.cwd()) {
+  let current = path3.resolve(startDir);
+  const root = path3.parse(current).root;
+  const home = path3.resolve(os.homedir());
+  while (current !== root) {
+    if (current !== home) {
+      const sessionFile = path3.join(current, ".devflow", "session.json");
+      if (existsSync3(sessionFile)) {
+        return current;
+      }
+    }
+    current = path3.dirname(current);
+  }
+  return null;
+}
+function isDevFlowProject(startDir = process.cwd()) {
+  return findDevFlowProjectRoot(startDir) !== null;
+}
+function getClaudeGlobalSettingsPath() {
+  return path3.join(getClaudeHome(), "settings.json");
+}
 function getSessionPath(projectRoot) {
   return path3.join(projectRoot, ".devflow", "session.json");
 }
@@ -565,7 +586,7 @@ function hasSession(projectRoot) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.2.0";
+var CLI_VERSION = "0.3.0";
 export {
   APP_ORIGINS,
   CLI_VERSION,
@@ -580,8 +601,10 @@ export {
   detectFlowState,
   enforcementRuleIdsForDevType,
   evaluateRules,
+  findDevFlowProjectRoot,
   formatDoctorOutput,
   getClaudeCommandsDir,
+  getClaudeGlobalSettingsPath,
   getClaudeHome,
   getClaudeSkillsDir,
   getDevflowDir,
@@ -594,6 +617,7 @@ export {
   isAppOrigin,
   isBrownfield,
   isClaudeCodeInstalled,
+  isDevFlowProject,
   isDevType,
   loadSession,
   partition,

@@ -17,6 +17,9 @@ var DEV_TYPES = [
   "modernizacion",
   "integracion-externa"
 ];
+function isDevType(value) {
+  return typeof value === "string" && DEV_TYPES.includes(value);
+}
 function requiresRepoContext(type) {
   return type !== "greenfield";
 }
@@ -481,6 +484,24 @@ function getProjectRoot(startDir = process.cwd()) {
   }
   return path3.resolve(startDir);
 }
+function findDevFlowProjectRoot(startDir = process.cwd()) {
+  let current = path3.resolve(startDir);
+  const root = path3.parse(current).root;
+  const home = path3.resolve(os.homedir());
+  while (current !== root) {
+    if (current !== home) {
+      const sessionFile = path3.join(current, ".devflow", "session.json");
+      if (existsSync3(sessionFile)) {
+        return current;
+      }
+    }
+    current = path3.dirname(current);
+  }
+  return null;
+}
+function getClaudeGlobalSettingsPath() {
+  return path3.join(getClaudeHome(), "settings.json");
+}
 function getSessionPath(projectRoot) {
   return path3.join(projectRoot, ".devflow", "session.json");
 }
@@ -560,7 +581,7 @@ function hasSession(projectRoot) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.2.0";
+var CLI_VERSION = "0.3.0";
 
 // src/commands/init.ts
 import { existsSync as existsSync5, readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, readdirSync, statSync as statSync3, copyFileSync, rmSync } from "fs";
@@ -674,12 +695,6 @@ function buildSettingsJson(existing = {}) {
   }
   hooks.Stop = stop;
   settings.hooks = hooks;
-  if (!settings.statusLine) {
-    settings.statusLine = {
-      type: "command",
-      command: "dd-cli statusline"
-    };
-  }
   return settings;
 }
 async function runInit(opts = {}) {
@@ -757,7 +772,7 @@ DevFlow IA \u2014 init`));
     }
     const merged = buildSettingsJson(existing);
     writeFileSync2(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
-    printOk(`Hooks + statusLine configurados en .claude/settings.json`);
+    printOk(`Hooks configurados en .claude/settings.json`);
   } else {
     printDim(`  (skip hooks)`);
   }
@@ -769,6 +784,7 @@ DevFlow IA \u2014 init`));
 ${bold("Listo.")} Abre Claude Code en este directorio.`);
   printDim(`
 Pr\xF3ximo paso: dd-cli start-session <feature-id>`);
+  printDim(`Tip: para ver la statusline en Claude Code \u2192 ejecuta una sola vez: dd-cli install`);
   return 0;
 }
 
@@ -1274,11 +1290,9 @@ function formatDuration3(startedAt) {
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 function runStatusline() {
-  let projectRoot;
-  try {
-    projectRoot = getProjectRoot();
-  } catch {
-    return "DevFlow IA";
+  const projectRoot = findDevFlowProjectRoot();
+  if (!projectRoot) {
+    return `DevFlow IA \xB7 v${CLI_VERSION} ready`;
   }
   let session;
   try {
@@ -2428,8 +2442,8 @@ function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
     if (!existsSync14(cacheDir)) {
-      const { mkdirSync: mkdirSync7 } = __require("fs");
-      mkdirSync7(path13.dirname(cacheDir), { recursive: true });
+      const { mkdirSync: mkdirSync9 } = __require("fs");
+      mkdirSync9(path13.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -2602,9 +2616,9 @@ Actualizando contexto del cliente: ${slug}
   if (!existsSync15(cacheDir)) {
     printInfo("Cache local no encontrada. Clonando...");
     try {
-      const { mkdirSync: mkdirSync7 } = __require("fs");
-      const path15 = __require("path");
-      mkdirSync7(path15.dirname(cacheDir), { recursive: true });
+      const { mkdirSync: mkdirSync9 } = __require("fs");
+      const path18 = __require("path");
+      mkdirSync9(path18.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
       printOk("Contexto clonado correctamente");
@@ -2838,8 +2852,8 @@ function activeChangeName(projectRoot) {
   try {
     const changes = path14.join(projectRoot, "openspec", "changes");
     if (!existsSync17(changes)) return null;
-    const { readdirSync: readdirSync3, statSync: statSync5 } = __require("fs");
-    const entries = readdirSync3(changes).filter((e) => {
+    const { readdirSync: readdirSync4, statSync: statSync5 } = __require("fs");
+    const entries = readdirSync4(changes).filter((e) => {
       return statSync5(path14.join(changes, e)).isDirectory() && existsSync17(path14.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
@@ -2915,8 +2929,8 @@ function buildBox(lines, width) {
   const out = [`\u2554${hr}\u2557`];
   for (const line of lines) {
     const visible = stripAnsi2(line);
-    const pad = Math.max(0, width - visible.length - 2);
-    out.push(`\u2551 ${line}${" ".repeat(pad)} \u2551`);
+    const pad2 = Math.max(0, width - visible.length - 2);
+    out.push(`\u2551 ${line}${" ".repeat(pad2)} \u2551`);
   }
   out.push(`\u255A${hr}\u255D`);
   return out;
@@ -2950,13 +2964,375 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve4) => {
+  await new Promise((resolve5) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve4();
+      resolve5();
     });
   });
+}
+
+// src/commands/install-cmd.ts
+import { existsSync as existsSync18, mkdirSync as mkdirSync7, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "fs";
+import * as path15 from "path";
+var STATUSLINE_COMMAND = "dd-cli statusline";
+function readGlobalSettings() {
+  const settingsPath = getClaudeGlobalSettingsPath();
+  if (!existsSync18(settingsPath)) return {};
+  try {
+    return JSON.parse(readFileSync12(settingsPath, "utf-8"));
+  } catch {
+    throw new Error(
+      `${settingsPath} existe pero no es JSON v\xE1lido. Corr\xEDgelo manualmente o usa --force.`
+    );
+  }
+}
+function writeGlobalSettings(settings) {
+  const settingsPath = getClaudeGlobalSettingsPath();
+  const dir = path15.dirname(settingsPath);
+  if (!existsSync18(dir)) mkdirSync7(dir, { recursive: true });
+  writeFileSync7(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+}
+async function runInstall(opts = {}) {
+  console.log(bold("\nDevFlow IA \u2014 install (global)\n"));
+  if (!isClaudeCodeInstalled()) {
+    printErr(`Claude Code no detectado en ${getClaudeHome()}`);
+    printInfo("Instala Claude Code primero: https://claude.com/claude-code");
+    return 2;
+  }
+  let settings;
+  try {
+    settings = readGlobalSettings();
+  } catch (e) {
+    if (!opts.force) {
+      printErr(e instanceof Error ? e.message : String(e));
+      return 2;
+    }
+    settings = {};
+  }
+  const existing = settings.statusLine;
+  const alreadyOurs = existing?.type === "command" && existing.command === STATUSLINE_COMMAND;
+  if (alreadyOurs && !opts.force) {
+    printInfo("La statusline DevFlow IA ya est\xE1 instalada globalmente.");
+    printDim(`  ${getClaudeGlobalSettingsPath()}`);
+    return 0;
+  }
+  if (existing && !alreadyOurs && !opts.force) {
+    printWarn("Ya hay una statusLine configurada en tu settings.json global:");
+    printDim(`  ${JSON.stringify(existing)}`);
+    printInfo("Usa --force para reemplazarla con la de DevFlow IA.");
+    return 1;
+  }
+  settings.statusLine = {
+    type: "command",
+    command: STATUSLINE_COMMAND
+  };
+  writeGlobalSettings(settings);
+  printOk("Statusline DevFlow IA instalada globalmente.");
+  printDim(`  ${getClaudeGlobalSettingsPath()}`);
+  console.log("");
+  printInfo("Reinicia Claude Code para verla. Comportamiento por contexto:");
+  printDim('  \xB7 Fuera de un proyecto DevFlow \u2192 "DevFlow IA \xB7 vX.Y.Z ready"');
+  printDim('  \xB7 Proyecto sin sesi\xF3n          \u2192 "DevFlow IA \xB7 sin sesi\xF3n \xB7 ..."');
+  printDim('  \xB7 Sesi\xF3n activa                \u2192 "HDU-X \xB7 paso N/M: ... \xB7 Tm  \u2B22 tipo"');
+  return 0;
+}
+async function runUninstall() {
+  console.log(bold("\nDevFlow IA \u2014 uninstall (global)\n"));
+  if (!existsSync18(getClaudeGlobalSettingsPath())) {
+    printInfo("No hay settings.json global; nada que desinstalar.");
+    return 0;
+  }
+  let settings;
+  try {
+    settings = readGlobalSettings();
+  } catch (e) {
+    printErr(e instanceof Error ? e.message : String(e));
+    return 2;
+  }
+  const existing = settings.statusLine;
+  const isOurs = existing?.type === "command" && existing.command === STATUSLINE_COMMAND;
+  if (!isOurs) {
+    printInfo("La statusline global no pertenece a DevFlow IA \u2014 no la toco.");
+    if (existing) printDim(`  Actual: ${JSON.stringify(existing)}`);
+    return 0;
+  }
+  delete settings.statusLine;
+  writeGlobalSettings(settings);
+  printOk("Statusline DevFlow IA removida de tu settings.json global.");
+  return 0;
+}
+
+// src/commands/flow-cmd.ts
+var STAGE_GROUPS = [
+  { label: "CAPTURA & DISE\xD1O", matches: (s) => s.id === "start-session" },
+  { label: "MAPEO DEL REPO", matches: (s) => s.id === "/init-repo-context" || s.id === "/map-service" || s.id === "/trace-flow" || s.id === "/capture-baseline" },
+  { label: "SPEC", matches: (s) => s.id === "/new-spec" || s.id === "/derive-spec" || s.id === "/new-app" },
+  { label: "CONSTRUCCI\xD3N SDD", matches: (s) => s.id.startsWith("/opsx:") },
+  { label: "RELEASE", matches: (s) => s.id === "/release-check" || s.id === "/end-session" }
+];
+function groupForStage(s) {
+  for (const g of STAGE_GROUPS) if (g.matches(s)) return g.label;
+  return "OTROS";
+}
+function statusIcon(stageIndex, currentIndex) {
+  if (currentIndex === null) return "\u2B1C";
+  if (stageIndex < currentIndex) return ok("\u2705");
+  if (stageIndex === currentIndex) return info("\u{1F535}");
+  return "\u2B1C";
+}
+function resolveContext(opts) {
+  if (opts.type) {
+    if (!isDevType(opts.type)) {
+      return { error: `dev_type inv\xE1lido: "${opts.type}". V\xE1lidos: ${DEV_TYPES.join(", ")}` };
+    }
+    return {
+      devType: opts.type,
+      source: "flag",
+      currentIndex: null,
+      featureId: null,
+      featureName: null
+    };
+  }
+  const projectRoot = findDevFlowProjectRoot();
+  if (!projectRoot) {
+    return {
+      error: "No estoy en un proyecto DevFlow IA y no diste --type.\n  Prueba: dd-cli flow --type=brownfield-feature  (o --all)"
+    };
+  }
+  let session;
+  try {
+    session = loadSession(projectRoot);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  if (!session || !session.dev_type) {
+    return {
+      error: "No hay sesi\xF3n activa con dev_type. Opciones:\n  \xB7 dd-cli flow --type=<tipo>  para ver un tipo hipot\xE9tico\n  \xB7 dd-cli flow --all          para ver los 5 tipos\n  \xB7 dd-cli start-session <HDU> para arrancar una sesi\xF3n"
+    };
+  }
+  const flowState = detectFlowState({ projectRoot, session });
+  return {
+    devType: session.dev_type,
+    source: "session",
+    currentIndex: currentStageIndex(session.dev_type, flowState),
+    featureId: session.feature_id ?? null,
+    featureName: session.feature_name ?? null
+  };
+}
+function renderFlow(ctx) {
+  const stages = stagesForDevType(ctx.devType);
+  const total = stages.length;
+  const headerTitle = `Flujo DevFlow IA \xB7 ${ctx.devType}`;
+  const subtitle = ctx.source === "session" ? `${ctx.featureId ?? "?"}${ctx.featureName ? " \xB7 " + ctx.featureName : ""}` : "(vista hipot\xE9tica \u2014 sin sesi\xF3n activa)";
+  console.log("");
+  console.log(bold(headerTitle));
+  console.log(dim(subtitle));
+  console.log(dim(devTypeBadge(ctx.devType)));
+  console.log("");
+  let lastGroup = "";
+  for (const s of stages) {
+    const grp = groupForStage(s);
+    if (grp !== lastGroup) {
+      if (lastGroup !== "") console.log("");
+      console.log(bold(`  ${grp}`));
+      lastGroup = grp;
+    }
+    const icon = statusIcon(s.index, ctx.currentIndex);
+    const idCol = s.id.padEnd(22);
+    const whereCol = s.invokeIn === "claude" ? dim("(claude)") : dim("(terminal)");
+    const youAreHere = ctx.currentIndex !== null && s.index === ctx.currentIndex ? "  " + info("\u2190 est\xE1s ac\xE1") : "";
+    console.log(`    ${icon}  ${idCol} ${whereCol}${youAreHere}`);
+    if (s.rationale) {
+      console.log(`        ${dim(s.rationale)}`);
+    }
+  }
+  console.log("");
+  console.log(dim(`Total: ${total} pasos`));
+  if (ctx.source === "session" && ctx.currentIndex !== null) {
+    const next = stages[ctx.currentIndex - 1];
+    if (next) {
+      const where = next.invokeIn === "claude" ? "Claude Code" : "la terminal";
+      console.log("");
+      printInfo(`Tu pr\xF3ximo paso: ejecuta ${bold(next.command)} en ${where}.`);
+    }
+  } else if (ctx.source === "flag") {
+    console.log("");
+    printDim("Esta es una vista hipot\xE9tica. Para arrancar:");
+    printDim("  dd-cli start-session <HDU-id>");
+  }
+  console.log("");
+}
+function renderAll() {
+  console.log("");
+  console.log(bold("Flujos DevFlow IA \u2014 los 5 dev_types\n"));
+  for (const type of DEV_TYPES) {
+    const stages = stagesForDevType(type);
+    console.log(bold(devTypeBadge(type)) + dim(`  \xB7 ${stages.length} pasos`));
+    const summary = stages.map((s) => s.id).join(" \u2192 ");
+    console.log(`  ${dim(summary)}`);
+    console.log("");
+  }
+  printDim("Para ver el detalle de uno: dd-cli flow --type=<tipo>");
+  console.log("");
+}
+function runFlow(opts = {}) {
+  if (opts.all) {
+    renderAll();
+    return 0;
+  }
+  const ctx = resolveContext(opts);
+  if ("error" in ctx) {
+    printErr(ctx.error);
+    return 1;
+  }
+  renderFlow(ctx);
+  return 0;
+}
+
+// src/commands/new-hdu-cmd.ts
+import { execSync as execSync4, spawn } from "child_process";
+import { existsSync as existsSync20, mkdirSync as mkdirSync8, readdirSync as readdirSync3, writeFileSync as writeFileSync8 } from "fs";
+import * as path17 from "path";
+
+// src/utils/templates.ts
+import { existsSync as existsSync19, readFileSync as readFileSync13 } from "fs";
+import * as path16 from "path";
+import { fileURLToPath as fileURLToPath3 } from "url";
+function resolveTemplatesDir() {
+  const here = path16.dirname(fileURLToPath3(import.meta.url));
+  const bundled = path16.resolve(here, "..", "..", "templates");
+  if (existsSync19(bundled)) return bundled;
+  const monorepo = path16.resolve(here, "..", "..", "..", "templates");
+  if (existsSync19(monorepo)) return monorepo;
+  return null;
+}
+function getTemplatePath(name) {
+  const dir = resolveTemplatesDir();
+  if (!dir) return null;
+  const full = path16.join(dir, name);
+  return existsSync19(full) ? full : null;
+}
+function renderTemplate(templatePath, vars) {
+  let content = readFileSync13(templatePath, "utf-8");
+  for (const [key, value] of Object.entries(vars)) {
+    content = content.replaceAll(`{{${key}}}`, value);
+  }
+  return content;
+}
+
+// src/commands/new-hdu-cmd.ts
+var HDU_DIR = path17.join("docs", "hdus");
+function slugify(title) {
+  return title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "").slice(0, 60);
+}
+function pad(n) {
+  return n.toString().padStart(3, "0");
+}
+function nextHduId(hduDir) {
+  if (!existsSync20(hduDir)) return "001";
+  const entries = readdirSync3(hduDir).filter((f) => f.endsWith(".md"));
+  let max = 0;
+  for (const entry of entries) {
+    const match = entry.match(/^HDU-(\d+)/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (!Number.isNaN(n) && n > max) max = n;
+    }
+  }
+  return pad(max + 1);
+}
+function getGitUser(projectRoot) {
+  try {
+    return execSync4("git config user.name", {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim() || (process.env["USER"] ?? "unknown");
+  } catch {
+    return process.env["USER"] ?? "unknown";
+  }
+}
+function launchClaude(opts) {
+  printInfo(`Lanzando Claude Code con ${bold(opts.skill)}...`);
+  printDim(`  Archivo: ${opts.hduPath}`);
+  console.log("");
+  try {
+    const child = spawn("claude", [], {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        DEVFLOW_INITIAL_SKILL: opts.skill,
+        DEVFLOW_HDU_PATH: opts.hduPath
+      }
+    });
+    child.on("error", (err2) => {
+      printWarn(`No pude lanzar 'claude' autom\xE1ticamente: ${err2.message}`);
+      printInfo("Abre Claude Code manualmente y ejecuta:");
+      printDim(`  ${opts.skill}  (sobre ${opts.hduPath})`);
+    });
+  } catch (e) {
+    printWarn(`No pude lanzar 'claude' autom\xE1ticamente: ${e instanceof Error ? e.message : e}`);
+    printInfo("Abre Claude Code manualmente y ejecuta:");
+    printDim(`  ${opts.skill}  (sobre ${opts.hduPath})`);
+  }
+}
+async function runNewHdu(title, opts = {}) {
+  if (!title || title.trim().length < 5) {
+    printErr('Falta el t\xEDtulo de la HDU. Uso: dd-cli new-hdu "<t\xEDtulo>"');
+    return 2;
+  }
+  const projectRoot = findDevFlowProjectRoot() ?? getProjectRoot();
+  if (!findDevFlowProjectRoot()) {
+    printWarn("No est\xE1s en un proyecto DevFlow IA (no encuentro .devflow/).");
+    printInfo("Ejecuta primero: dd-cli init  (o dd-cli init --client=<slug>)");
+    return 2;
+  }
+  const hduDir = path17.join(projectRoot, HDU_DIR);
+  if (!existsSync20(hduDir)) mkdirSync8(hduDir, { recursive: true });
+  const id = nextHduId(hduDir);
+  const slug = slugify(title.trim());
+  const fileName = `HDU-${id}-${slug}.md`;
+  const hduPath = path17.join(hduDir, fileName);
+  const hduPathRel = path17.relative(projectRoot, hduPath);
+  const templatePath = getTemplatePath("HDU.md.template");
+  if (!templatePath) {
+    printErr("No encontr\xE9 HDU.md.template en el paquete.");
+    printDim("  Esperado en <package>/templates/ o <monorepo>/templates/");
+    return 2;
+  }
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const content = renderTemplate(templatePath, {
+    ID: id,
+    TITLE: title.trim(),
+    DATE: today,
+    USER: getGitUser(projectRoot)
+  });
+  if (existsSync20(hduPath)) {
+    printErr(`Ya existe ${hduPathRel}. Cambia el t\xEDtulo o borra el archivo.`);
+    return 1;
+  }
+  writeFileSync8(hduPath, content, "utf-8");
+  console.log(bold(`
+DevFlow IA \u2014 nueva HDU
+`));
+  printOk(`Creada: ${hduPathRel}`);
+  printDim(`  ID:       HDU-${id}`);
+  printDim(`  T\xEDtulo:   ${title.trim()}`);
+  if (opts.type) printDim(`  Sugerido: ${opts.type} (Tech Lead aprueba en design-hdu)`);
+  console.log("");
+  if (opts.noClaude) {
+    printInfo("Pr\xF3ximo paso (manual): abre Claude Code y ejecuta:");
+    printDim(`  /devflow-ia:design-hdu  (sobre ${hduPathRel})`);
+    console.log("");
+    return 0;
+  }
+  launchClaude({
+    hduPath: hduPathRel,
+    skill: "/devflow-ia:design-hdu"
+  });
+  return 0;
 }
 
 // src/bin/dd-cli.ts
@@ -2975,6 +3351,38 @@ program.command("init").description("Inicializa DevFlow IA en el proyecto actual
       });
       process.exit(exitCode);
     }
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("install").description("Configura la statusline DevFlow IA globalmente (~/.claude/settings.json)").option("--force", "Sobrescribe statusLine existente", false).action(async (opts) => {
+  try {
+    process.exit(await runInstall({ force: opts.force }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("uninstall").description("Remueve la statusline DevFlow IA del settings.json global").action(async () => {
+  try {
+    process.exit(await runUninstall());
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("flow").description("Muestra el viaje completo del m\xE9todo para el dev_type activo (o uno hipot\xE9tico)").option("--type <type>", "dev_type a visualizar: greenfield | brownfield-feature | brownfield-refactor | modernizacion | integracion-externa").option("--all", "Muestra resumen de los 5 dev_types", false).action((opts) => {
+  try {
+    process.exit(runFlow({ type: opts.type, all: opts.all }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("new-hdu <title>").alias("new-feature").description("Crea una HDU desde el template y lanza Claude con /devflow-ia:design-hdu").option("--type <type>", "dev_type sugerido (Tech Lead confirma en design-hdu)").option("--no-claude", "No lanzar claude \u2014 solo crear el archivo", false).action(async (title, opts) => {
+  try {
+    process.exit(await runNewHdu(title, { type: opts.type, noClaude: opts.claude === false }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

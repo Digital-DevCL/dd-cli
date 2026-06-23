@@ -24,6 +24,48 @@ export function getProjectRoot(startDir: string = process.cwd()): string {
   return path.resolve(startDir);
 }
 
+/**
+ * Busca `.devflow/session.json` ascendiendo desde `startDir` y retorna el root.
+ * NO confunde con `~/.devflow/` (config global del CLI), ya que solo se considera
+ * "proyecto DevFlow" si tiene `session.json`.
+ *
+ * Retorna null si no hay proyecto DevFlow en la jerarquía.
+ *
+ * Útil para statusline + install (debemos saber si estamos REALMENTE dentro de un
+ * proyecto DevFlow o en un repo cualquiera).
+ */
+export function findDevFlowProjectRoot(startDir: string = process.cwd()): string | null {
+  let current = path.resolve(startDir);
+  const root = path.parse(current).root;
+  const home = path.resolve(os.homedir());
+
+  while (current !== root) {
+    // Excluir el home dir — `~/.devflow/` es config global, no un proyecto.
+    if (current !== home) {
+      const sessionFile = path.join(current, '.devflow', 'session.json');
+      if (existsSync(sessionFile)) {
+        return current;
+      }
+    }
+    current = path.dirname(current);
+  }
+  return null;
+}
+
+/**
+ * `true` si el path indicado (o cwd por default) está dentro de un proyecto DevFlow IA.
+ */
+export function isDevFlowProject(startDir: string = process.cwd()): boolean {
+  return findDevFlowProjectRoot(startDir) !== null;
+}
+
+/**
+ * Path del settings.json GLOBAL de Claude Code (~/.claude/settings.json).
+ */
+export function getClaudeGlobalSettingsPath(): string {
+  return path.join(getClaudeHome(), 'settings.json');
+}
+
 export function getSessionPath(projectRoot: string): string {
   return path.join(projectRoot, '.devflow', 'session.json');
 }

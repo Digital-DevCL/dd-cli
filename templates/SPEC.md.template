@@ -1,0 +1,76 @@
+---
+id: SPEC-{{SLUG}}
+feature_id: HDU-{{ID}}
+title: {{TITLE}}
+dev_type: {{DEV_TYPE}}
+status: draft                # draft | reviewed | approved
+created_at: {{DATE}}
+created_by: {{USER}}
+---
+
+# SPEC-{{SLUG}} — {{TITLE}}
+
+> Esta SPEC fue creada por `dd-cli new-hdu` con el template oficial.
+> Completa esta plantilla con Claude usando:
+>
+> ```
+> /devflow-ia:new-spec
+> ```
+>
+> La estructura específica depende del `dev_type`. Las secciones marcadas con
+> [REQUERIDO] son obligatorias para todos los tipos; las marcadas con [tipo:X]
+> solo aplican al dev_type indicado.
+
+## 1. Contexto [REQUERIDO]
+
+<resumen del problema y por qué se aborda ahora>
+
+## 2. Alcance [REQUERIDO]
+
+### Incluye
+- ...
+
+### NO incluye (out of scope)
+- ...
+
+## 3. Arquitectura [REQUERIDO]
+
+<diagrama o descripción de los componentes involucrados>
+
+## 4. Diseño técnico [REQUERIDO]
+
+<flujos, contratos, esquemas de datos>
+
+## 5. Plan de implementación [REQUERIDO]
+
+<lista de tasks ordenadas; será refinada en /opsx:propose>
+
+## 6. Criterios de aceptación [REQUERIDO]
+
+- [ ] ...
+
+---
+
+## Secciones específicas por dev_type
+
+### [tipo:brownfield-refactor] Matriz de no-regresión
+
+<contratos públicos que NO deben cambiar + golden tests asociados>
+
+### [tipo:modernizacion] Plan de rampa + rollback
+
+<estrategia de cohabitación legacy/nuevo + condiciones de rollback>
+
+### [tipo:integracion-externa] Vendor + seguridad
+
+- **Vendor:** [nombre]
+- **API version:** [version]
+- **Auth:** [tipo]
+- **Rate limits:** [límite]
+- **Idempotencia:** [estrategia]
+- **Webhooks:** [endpoints + firma]
+- **Sandbox URL:** [url]
+
+### [tipo:greenfield] Templates a usar
+
+<lista de templates del cliente que se aplican al scaffolding inicial>

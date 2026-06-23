@@ -1,0 +1,59 @@
+---
+id: HDU-{{ID}}
+title: {{TITLE}}
+status: draft                # draft | approved | in-progress | done
+dev_type: pending            # PMO sugiere · Tech Lead aprueba en /devflow-ia:design-hdu
+dev_type_rationale: ""
+apps_affected: []            # slugs del app-catalog del cliente
+priority: medium             # low | medium | high
+created_at: {{DATE}}
+created_by: {{USER}}
+---
+
+# HDU-{{ID}} — {{TITLE}}
+
+> Esta HDU fue creada por `dd-cli new-hdu` con el template oficial.
+> Completa esta plantilla colaborativamente con Claude usando:
+>
+> ```
+> /devflow-ia:design-hdu
+> ```
+
+## Como
+<perfil del usuario destinatario>
+
+## Quiero
+<funcionalidad que se necesita>
+
+## Para
+<beneficio / valor de negocio que se busca>
+
+---
+
+## Criterios de aceptación
+
+- [ ] Dado X, cuando Y, entonces Z
+- [ ] ...
+
+## Notas técnicas
+
+<contexto adicional para el dev / Tech Lead>
+
+## Apps afectadas
+
+<lista de slugs del app-catalog que se tocan en esta HDU>
+
+---
+
+## Clasificación (lo completa el Tech Lead en `design-hdu`)
+
+- **dev_type sugerido:** `pending`
+- **Justificación:** `[completar — mínimo 30 caracteres]`
+- **Subtipo (opcional):** `[ej: 'auth-sso', 'cotizador-vehicular', ...]`
+
+Tipos válidos:
+- `greenfield` — app nueva desde cero
+- `brownfield-feature` — feature sobre app existente
+- `brownfield-refactor` — refactor preservando comportamiento
+- `modernizacion` — reemplazo de sistema legacy
+- `integracion-externa` — integración con vendor externo

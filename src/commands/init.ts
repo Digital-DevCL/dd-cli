@@ -92,13 +92,15 @@ function writeSkillsVersion(): void {
 }
 
 /**
- * Construye el objeto settings con hooks + statusLine para Claude Code,
- * mergeando con existente.
+ * Construye el objeto settings con hooks para Claude Code (mergea con existente).
+ *
+ * La statusLine NO se setea acá — vive en ~/.claude/settings.json (global),
+ * configurada por `dd-cli install`. Esto evita ruido en proyectos no-DevFlow
+ * y permite que la barra sea inteligente según contexto.
  */
 function buildSettingsJson(existing: Record<string, unknown> = {}): Record<string, unknown> {
   const settings = { ...existing };
 
-  // ── Hooks ────────────────────────────────────────────────
   const hooks = (settings.hooks as Record<string, unknown>) ?? {};
 
   const heartbeatHook = {
@@ -110,7 +112,6 @@ function buildSettingsJson(existing: Record<string, unknown> = {}): Record<strin
     command: 'dd-cli heartbeat --silent --on-stop 2>/dev/null || true',
   };
 
-  // PostToolUse: append si no está
   const postToolUse = (hooks.PostToolUse as Array<Record<string, unknown>>) ?? [];
   const alreadyHas = postToolUse.some((entry) => {
     const list = (entry.hooks as Array<Record<string, unknown>>) ?? [];
@@ -124,7 +125,6 @@ function buildSettingsJson(existing: Record<string, unknown> = {}): Record<strin
   }
   hooks.PostToolUse = postToolUse;
 
-  // Stop
   const stop = (hooks.Stop as Array<Record<string, unknown>>) ?? [];
   const stopAlready = stop.some((entry) => {
     const list = (entry.hooks as Array<Record<string, unknown>>) ?? [];
@@ -136,15 +136,6 @@ function buildSettingsJson(existing: Record<string, unknown> = {}): Record<strin
   hooks.Stop = stop;
 
   settings.hooks = hooks;
-
-  // ── statusLine ────────────────────────────────────────────
-  // Solo lo seteamos si NO existe ya (no pisamos config previa del usuario)
-  if (!settings.statusLine) {
-    settings.statusLine = {
-      type: 'command',
-      command: 'dd-cli statusline',
-    };
-  }
 
   return settings;
 }
@@ -235,7 +226,7 @@ export async function runInit(opts: InitOptions = {}): Promise<number> {
     }
     const merged = buildSettingsJson(existing);
     writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
-    printOk(`Hooks + statusLine configurados en .claude/settings.json`);
+    printOk(`Hooks configurados en .claude/settings.json`);
   } else {
     printDim(`  (skip hooks)`);
   }
@@ -248,5 +239,6 @@ export async function runInit(opts: InitOptions = {}): Promise<number> {
 
   console.log(`\n${bold('Listo.')} Abre Claude Code en este directorio.`);
   printDim(`\nPróximo paso: dd-cli start-session <feature-id>`);
+  printDim(`Tip: para ver la statusline en Claude Code → ejecuta una sola vez: dd-cli install`);
   return 0;
 }
