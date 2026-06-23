@@ -4,7 +4,7 @@ description: Onboarding de cliente a DevFlow IA — discovery automático via AP
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.2.0
+version: 0.5.0
 category: Onboarding
 model: opus
 model_rationale: Interpretar patrones de arquitectura detectados, inferir decisiones técnicas del cliente y generar artefactos coherentes requiere razonamiento profundo. Errores en el contexto del cliente impactan todo el flujo.
@@ -32,25 +32,53 @@ Tu objetivo es generar el repositorio de contexto completo del cliente con el **
 
 ---
 
-## PASO 0 — Detectar modo y cargar credenciales
+## PASO 0 — Detectar slug y cargar credenciales
+
+**Arg opcional:** `/init-context <slug>` — si se pasa, usar ese slug directamente.
+
+**Si NO se pasa arg**, derivar el slug así (en orden de prioridad):
+1. Leer `.devflow/config.yml` en el cwd → campo `client`
+2. Leer el nombre del directorio actual → quitar sufijo `-devflow-context` si existe
+3. Preguntar al usuario
+
+Una vez determinado el slug, leer los archivos directamente (NO usar grep con subshell):
 
 ```bash
-# Detectar si estamos en modo auto (con API) o manual
-cat ~/.devflow/registry.yml | grep -A5 "$(basename $(pwd) | sed 's/-devflow-context//')"
-cat ~/.devflow/credentials.yml | grep -A5 "$(basename $(pwd) | sed 's/-devflow-context//')"
+cat ~/.devflow/credentials.yml
+cat ~/.devflow/registry.yml
 ```
 
-**Si hay credenciales git configuradas (`git_token` presente):**
+Buscar la sección `clients.<slug>` en cada archivo. En YAML la estructura es:
+```yaml
+clients:
+  <slug>:
+    git_token: <token>
+    git_host: gitlab
+    git_group: <grupo>
+```
+
+**Si se encuentra `git_token` para el slug:**
 → Modo **auto** — usar API para discovery. Continuar con PASO 1.
 
-**Si NO hay credenciales:**
-→ Preguntar: "No encontré credenciales API configuradas.
-  ¿Tenés un token de acceso para el GitLab/GitHub del cliente?
-  Si sí, ejecuta primero:
-    dd-cli register-client <slug> --git-token=<token> --git-group=<grupo> [--git-host=gitlab]
-  Si no, podemos hacer el onboarding manual. ¿Continuamos en modo manual?"
-  
-→ Modo **manual** (fallback): ir al PASO M (al final del documento).
+**Si NO se encuentra `git_token`:**
+```
+No encontré credenciales API para el cliente "<slug>".
+
+Para activar el modo auto (discovery sin preguntas), ejecuta en la terminal:
+  dd-cli register-client <slug> \
+    --context-url=<url-del-repo-de-contexto> \
+    --git-token=<PAT> \
+    --git-group=<grupo> \
+    --git-host=gitlab
+
+Luego vuelve a ejecutar /devflow-ia:init-context.
+
+Si no tienes token disponible ahora, podemos hacer el onboarding manual.
+¿Continuamos en modo manual? (sí / no)
+```
+
+→ Si responde **sí**: modo **manual** — ir al PASO M.
+→ Si responde **no**: detener. No continuar hasta tener credenciales.
 
 ---
 
@@ -72,7 +100,7 @@ Encontré <N> repos en <git_group>:
   Sin actividad: <N>
   
 ¿Hay repos en otros grupos o en otra plataforma que debería incluir?
-(Si no, responde "no" y continúo con el análisis)
+(Si no, responde "no" y continúa con el análisis)
 ```
 
 ---

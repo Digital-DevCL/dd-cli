@@ -581,7 +581,7 @@ function hasSession(projectRoot) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.5.0";
+var CLI_VERSION = "0.5.1";
 
 // src/commands/init.ts
 import { existsSync as existsSync5, readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, readdirSync, statSync as statSync3, copyFileSync, rmSync } from "fs";
