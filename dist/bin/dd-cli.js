@@ -581,7 +581,7 @@ function hasSession(projectRoot) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.4.0";
+var CLI_VERSION = "0.5.0";
 
 // src/commands/init.ts
 import { existsSync as existsSync5, readFileSync as readFileSync3, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, readdirSync, statSync as statSync3, copyFileSync, rmSync } from "fs";
@@ -1277,6 +1277,120 @@ Sesi\xF3n cerrada
   return 0;
 }
 
+// src/types/registry.ts
+import { z as z2 } from "zod";
+import { readFileSync as readFileSync5, writeFileSync as writeFileSync4, existsSync as existsSync7, mkdirSync as mkdirSync3 } from "fs";
+import * as path6 from "path";
+import * as os2 from "os";
+import * as yaml from "js-yaml";
+var ClientRegistryEntrySchema = z2.object({
+  slug: z2.string(),
+  name: z2.string().default(""),
+  context_url: z2.string().url(),
+  local_cache: z2.string(),
+  // path absoluto a ~/.devflow/clients/<slug>/
+  last_synced: z2.string().nullable().default(null),
+  registered_at: z2.string()
+});
+var RegistrySchema = z2.object({
+  clients: z2.record(z2.string(), ClientRegistryEntrySchema).default({})
+});
+function getDevflowGlobalDir() {
+  return path6.join(os2.homedir(), ".devflow");
+}
+function getRegistryPath() {
+  return path6.join(getDevflowGlobalDir(), "registry.yml");
+}
+function getClientCacheDir(slug) {
+  return path6.join(getDevflowGlobalDir(), "clients", slug);
+}
+function loadRegistry() {
+  const registryPath = getRegistryPath();
+  if (!existsSync7(registryPath)) {
+    return { clients: {} };
+  }
+  const raw = readFileSync5(registryPath, "utf-8");
+  const parsed = yaml.load(raw);
+  const result = RegistrySchema.safeParse(parsed ?? {});
+  if (!result.success) {
+    throw new Error(`registry.yml inv\xE1lido:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveRegistry(registry) {
+  const globalDir = getDevflowGlobalDir();
+  if (!existsSync7(globalDir)) mkdirSync3(globalDir, { recursive: true });
+  const validated = RegistrySchema.parse(registry);
+  const yamlStr = yaml.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync4(getRegistryPath(), yamlStr, "utf-8");
+}
+function getClient(slug) {
+  const registry = loadRegistry();
+  return registry.clients[slug] ?? null;
+}
+function registerClient(entry) {
+  const registry = loadRegistry();
+  registry.clients[entry.slug] = {
+    ...entry,
+    registered_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  saveRegistry(registry);
+}
+function updateLastSynced(slug) {
+  const registry = loadRegistry();
+  const entry = registry.clients[slug];
+  if (entry) {
+    entry.last_synced = (/* @__PURE__ */ new Date()).toISOString();
+    saveRegistry(registry);
+  }
+}
+
+// src/types/credentials.ts
+import { z as z3 } from "zod";
+import { existsSync as existsSync8, readFileSync as readFileSync6, writeFileSync as writeFileSync5, chmodSync } from "fs";
+import * as path7 from "path";
+import * as yaml2 from "js-yaml";
+var GitHostSchema = z3.enum(["gitlab", "github", "bitbucket", "azure"]);
+var ClientCredentialsSchema = z3.object({
+  git_token: z3.string().min(1),
+  git_host: GitHostSchema.default("gitlab"),
+  git_base_url: z3.string().url().default("https://gitlab.com"),
+  git_group: z3.string().min(1)
+  // grupo/org a escanear
+});
+var CredentialsFileSchema = z3.object({
+  clients: z3.record(z3.string(), ClientCredentialsSchema).default({})
+});
+function getCredentialsPath() {
+  return path7.join(getDevflowGlobalDir(), "credentials.yml");
+}
+function loadCredentials() {
+  const p = getCredentialsPath();
+  if (!existsSync8(p)) return { clients: {} };
+  const raw = readFileSync6(p, "utf-8");
+  const parsed = yaml2.load(raw);
+  const result = CredentialsFileSchema.safeParse(parsed ?? {});
+  if (!result.success) throw new Error(`credentials.yml inv\xE1lido:
+${result.error.message}`);
+  return result.data;
+}
+function saveCredentials(creds) {
+  const p = getCredentialsPath();
+  const validated = CredentialsFileSchema.parse(creds);
+  const yamlStr = yaml2.dump(validated, { indent: 2 });
+  writeFileSync5(p, yamlStr, { encoding: "utf-8", mode: 384 });
+  try {
+    chmodSync(p, 384);
+  } catch {
+  }
+}
+function setClientCredentials(slug, creds) {
+  const all = loadCredentials();
+  all.clients[slug] = ClientCredentialsSchema.parse(creds);
+  saveCredentials(all);
+}
+
 // src/commands/statusline.ts
 function formatDuration3(startedAt) {
   const start = new Date(startedAt).getTime();
@@ -1289,10 +1403,30 @@ function formatDuration3(startedAt) {
   const minutes = totalMin % 60;
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
+function clientStatusSummary() {
+  try {
+    const registry = loadRegistry();
+    const creds = loadCredentials();
+    const slugs = Object.keys(registry.clients);
+    if (slugs.length === 0) {
+      return `DevFlow IA \xB7 v${CLI_VERSION} \xB7 sin cliente \xB7 dd-cli register-client`;
+    }
+    if (slugs.length === 1) {
+      const slug = slugs[0];
+      const hasCreds = !!creds.clients[slug];
+      const indicator = hasCreds ? "\u2713" : "\u26A0 sin creds";
+      return `DevFlow IA \xB7 ${slug} ${indicator}`;
+    }
+    const withCreds = slugs.filter((s) => !!creds.clients[s]).length;
+    return `DevFlow IA \xB7 ${slugs.length} clientes (${withCreds} con API)`;
+  } catch {
+    return `DevFlow IA \xB7 v${CLI_VERSION} ready`;
+  }
+}
 function runStatusline() {
   const projectRoot = findDevFlowProjectRoot();
   if (!projectRoot) {
-    return `DevFlow IA \xB7 v${CLI_VERSION} ready`;
+    return clientStatusSummary();
   }
   let session;
   try {
@@ -1624,25 +1758,25 @@ function runNext() {
 }
 
 // src/commands/heartbeat.ts
-import { existsSync as existsSync7, appendFileSync, mkdirSync as mkdirSync3 } from "fs";
-import * as path6 from "path";
+import { existsSync as existsSync9, appendFileSync, mkdirSync as mkdirSync4 } from "fs";
+import * as path8 from "path";
 function log(msg, silent) {
   if (!silent) console.log(msg);
 }
 function safeLog(projectRoot, line) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync7(dir)) mkdirSync3(dir, { recursive: true });
-    appendFileSync(path6.join(dir, "heartbeat.log"), line + "\n", "utf-8");
+    if (!existsSync9(dir)) mkdirSync4(dir, { recursive: true });
+    appendFileSync(path8.join(dir, "heartbeat.log"), line + "\n", "utf-8");
   } catch {
   }
 }
 function safeLogTransition(projectRoot, from, to) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync7(dir)) mkdirSync3(dir, { recursive: true });
+    if (!existsSync9(dir)) mkdirSync4(dir, { recursive: true });
     const line = `${(/* @__PURE__ */ new Date()).toISOString()}  flow_state: ${from} \u2192 ${to}`;
-    appendFileSync(path6.join(dir, "transitions.log"), line + "\n", "utf-8");
+    appendFileSync(path8.join(dir, "transitions.log"), line + "\n", "utf-8");
   } catch {
   }
 }
@@ -1740,11 +1874,11 @@ async function runHeartbeat(opts = {}) {
 }
 
 // src/commands/skills-cmd.ts
-import { existsSync as existsSync8, readdirSync as readdirSync2, statSync as statSync4, readFileSync as readFileSync5 } from "fs";
+import { existsSync as existsSync10, readdirSync as readdirSync2, statSync as statSync4, readFileSync as readFileSync7 } from "fs";
 import { createHash } from "crypto";
-import * as path7 from "path";
+import * as path9 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
-var __dirname = path7.dirname(fileURLToPath2(import.meta.url));
+var __dirname = path9.dirname(fileURLToPath2(import.meta.url));
 var META_FILES2 = /* @__PURE__ */ new Set([
   "AUDIT.md",
   "CUSTOMIZATION.md",
@@ -1763,22 +1897,22 @@ function parseFrontmatter(content) {
   return fm;
 }
 function sha256File(filePath) {
-  const content = readFileSync5(filePath);
+  const content = readFileSync7(filePath);
   return createHash("sha256").update(content).digest("hex");
 }
 function collectSkills(dir, relBase = "") {
   const skills2 = [];
-  if (!existsSync8(dir)) return skills2;
+  if (!existsSync10(dir)) return skills2;
   for (const entry of readdirSync2(dir)) {
-    const fullPath = path7.join(dir, entry);
+    const fullPath = path9.join(dir, entry);
     const st = statSync4(fullPath);
     if (st.isDirectory()) {
-      skills2.push(...collectSkills(fullPath, path7.join(relBase, entry)));
+      skills2.push(...collectSkills(fullPath, path9.join(relBase, entry)));
     } else if (entry.endsWith(".md") && !META_FILES2.has(entry)) {
-      const content = readFileSync5(fullPath, "utf-8");
+      const content = readFileSync7(fullPath, "utf-8");
       const fm = parseFrontmatter(content);
       skills2.push({
-        relPath: path7.join(relBase, entry),
+        relPath: path9.join(relBase, entry),
         name: fm["name"] ?? entry.replace(".md", ""),
         category: fm["category"] ?? "?",
         model: fm["model"] ?? "?",
@@ -1790,28 +1924,28 @@ function collectSkills(dir, relBase = "") {
   return skills2;
 }
 function resolveChecksumsPath() {
-  const pkgRoot = path7.resolve(__dirname, "..", "..");
-  const candidate = path7.join(pkgRoot, "skills.checksums");
-  return existsSync8(candidate) ? candidate : null;
+  const pkgRoot = path9.resolve(__dirname, "..", "..");
+  const candidate = path9.join(pkgRoot, "skills.checksums");
+  return existsSync10(candidate) ? candidate : null;
 }
 function loadChecksums() {
   const p = resolveChecksumsPath();
   if (!p) return {};
   try {
-    return JSON.parse(readFileSync5(p, "utf-8"));
+    return JSON.parse(readFileSync7(p, "utf-8"));
   } catch {
     return {};
   }
 }
 function runSkillsList() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync8(skillsDir)) {
+  if (!existsSync10(skillsDir)) {
     printWarn(`Skills no instaladas en ${skillsDir}`);
     printDim(`  Ejecuta: dd-cli init`);
     return 1;
   }
-  const versionFile = path7.join(skillsDir, ".version");
-  const version = existsSync8(versionFile) ? readFileSync5(versionFile, "utf-8").trim() : "?";
+  const versionFile = path9.join(skillsDir, ".version");
+  const version = existsSync10(versionFile) ? readFileSync7(versionFile, "utf-8").trim() : "?";
   const skills2 = collectSkills(skillsDir);
   console.log(`
 Skills instaladas en ${skillsDir} (v${version})
@@ -1850,7 +1984,7 @@ function runSkillsVerify() {
       printWarn(`${s.relPath}: no est\xE1 en checksums (skill nueva?)`);
       continue;
     }
-    const actual = sha256File(path7.join(skillsDir, s.relPath));
+    const actual = sha256File(path9.join(skillsDir, s.relPath));
     if (actual === expected) {
       ok2++;
     } else {
@@ -1963,7 +2097,7 @@ ${bold3(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/
 
 // src/commands/reclassify-cmd.ts
 import { appendFileSync as appendFileSync2 } from "fs";
-import * as path8 from "path";
+import * as path10 from "path";
 
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
@@ -2074,7 +2208,7 @@ function runReclassifyCmd(opts) {
   saveSession(projectRoot, updated);
   const auditLine = `${(/* @__PURE__ */ new Date()).toISOString()}  HDU ${session.feature_id}  ${session.dev_type} \u2192 ${updated.dev_type}  reason: ${opts.reason}`;
   try {
-    appendFileSync2(path8.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
+    appendFileSync2(path10.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
   } catch {
   }
   console.log("");
@@ -2093,122 +2227,6 @@ function runReclassifyCmd(opts) {
 import { execSync } from "child_process";
 import { existsSync as existsSync12, mkdirSync as mkdirSync5 } from "fs";
 import * as path11 from "path";
-
-// src/types/registry.ts
-import { z as z2 } from "zod";
-import { readFileSync as readFileSync7, writeFileSync as writeFileSync4, existsSync as existsSync10, mkdirSync as mkdirSync4 } from "fs";
-import * as path9 from "path";
-import * as os2 from "os";
-import * as yaml from "js-yaml";
-var ClientRegistryEntrySchema = z2.object({
-  slug: z2.string(),
-  name: z2.string().default(""),
-  context_url: z2.string().url(),
-  local_cache: z2.string(),
-  // path absoluto a ~/.devflow/clients/<slug>/
-  last_synced: z2.string().nullable().default(null),
-  registered_at: z2.string()
-});
-var RegistrySchema = z2.object({
-  clients: z2.record(z2.string(), ClientRegistryEntrySchema).default({})
-});
-function getDevflowGlobalDir() {
-  return path9.join(os2.homedir(), ".devflow");
-}
-function getRegistryPath() {
-  return path9.join(getDevflowGlobalDir(), "registry.yml");
-}
-function getClientCacheDir(slug) {
-  return path9.join(getDevflowGlobalDir(), "clients", slug);
-}
-function loadRegistry() {
-  const registryPath = getRegistryPath();
-  if (!existsSync10(registryPath)) {
-    return { clients: {} };
-  }
-  const raw = readFileSync7(registryPath, "utf-8");
-  const parsed = yaml.load(raw);
-  const result = RegistrySchema.safeParse(parsed ?? {});
-  if (!result.success) {
-    throw new Error(`registry.yml inv\xE1lido:
-${result.error.message}`);
-  }
-  return result.data;
-}
-function saveRegistry(registry) {
-  const globalDir = getDevflowGlobalDir();
-  if (!existsSync10(globalDir)) mkdirSync4(globalDir, { recursive: true });
-  const validated = RegistrySchema.parse(registry);
-  const yamlStr = yaml.dump(validated, { indent: 2, lineWidth: 120 });
-  writeFileSync4(getRegistryPath(), yamlStr, "utf-8");
-}
-function getClient(slug) {
-  const registry = loadRegistry();
-  return registry.clients[slug] ?? null;
-}
-function registerClient(entry) {
-  const registry = loadRegistry();
-  registry.clients[entry.slug] = {
-    ...entry,
-    registered_at: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  saveRegistry(registry);
-}
-function updateLastSynced(slug) {
-  const registry = loadRegistry();
-  const entry = registry.clients[slug];
-  if (entry) {
-    entry.last_synced = (/* @__PURE__ */ new Date()).toISOString();
-    saveRegistry(registry);
-  }
-}
-
-// src/types/credentials.ts
-import { z as z3 } from "zod";
-import { existsSync as existsSync11, readFileSync as readFileSync8, writeFileSync as writeFileSync5, chmodSync } from "fs";
-import * as path10 from "path";
-import * as yaml2 from "js-yaml";
-var GitHostSchema = z3.enum(["gitlab", "github", "bitbucket", "azure"]);
-var ClientCredentialsSchema = z3.object({
-  git_token: z3.string().min(1),
-  git_host: GitHostSchema.default("gitlab"),
-  git_base_url: z3.string().url().default("https://gitlab.com"),
-  git_group: z3.string().min(1)
-  // grupo/org a escanear
-});
-var CredentialsFileSchema = z3.object({
-  clients: z3.record(z3.string(), ClientCredentialsSchema).default({})
-});
-function getCredentialsPath() {
-  return path10.join(getDevflowGlobalDir(), "credentials.yml");
-}
-function loadCredentials() {
-  const p = getCredentialsPath();
-  if (!existsSync11(p)) return { clients: {} };
-  const raw = readFileSync8(p, "utf-8");
-  const parsed = yaml2.load(raw);
-  const result = CredentialsFileSchema.safeParse(parsed ?? {});
-  if (!result.success) throw new Error(`credentials.yml inv\xE1lido:
-${result.error.message}`);
-  return result.data;
-}
-function saveCredentials(creds) {
-  const p = getCredentialsPath();
-  const validated = CredentialsFileSchema.parse(creds);
-  const yamlStr = yaml2.dump(validated, { indent: 2 });
-  writeFileSync5(p, yamlStr, { encoding: "utf-8", mode: 384 });
-  try {
-    chmodSync(p, 384);
-  } catch {
-  }
-}
-function setClientCredentials(slug, creds) {
-  const all = loadCredentials();
-  all.clients[slug] = ClientCredentialsSchema.parse(creds);
-  saveCredentials(all);
-}
-
-// src/commands/register-client.ts
 function runGit(cmd, cwd) {
   try {
     return execSync(cmd, {
@@ -2617,8 +2635,8 @@ Actualizando contexto del cliente: ${slug}
     printInfo("Cache local no encontrada. Clonando...");
     try {
       const { mkdirSync: mkdirSync9 } = __require("fs");
-      const path18 = __require("path");
-      mkdirSync9(path18.dirname(cacheDir), { recursive: true });
+      const path19 = __require("path");
+      mkdirSync9(path19.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
       printOk("Contexto clonado correctamente");
@@ -2852,8 +2870,8 @@ function activeChangeName(projectRoot) {
   try {
     const changes = path14.join(projectRoot, "openspec", "changes");
     if (!existsSync17(changes)) return null;
-    const { readdirSync: readdirSync4, statSync: statSync5 } = __require("fs");
-    const entries = readdirSync4(changes).filter((e) => {
+    const { readdirSync: readdirSync5, statSync: statSync5 } = __require("fs");
+    const entries = readdirSync5(changes).filter((e) => {
       return statSync5(path14.join(changes, e)).isDirectory() && existsSync17(path14.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
@@ -3335,6 +3353,194 @@ DevFlow IA \u2014 nueva HDU
   return 0;
 }
 
+// src/commands/health-cmd.ts
+import { existsSync as existsSync21, readFileSync as readFileSync14 } from "fs";
+import * as path18 from "path";
+import { readdirSync as readdirSync4 } from "fs";
+function check(label, status, detail) {
+  const icons = { ok: ok("\u2713"), warn: warn("\u26A0"), err: err("\u2717"), skip: dim("\xB7") };
+  const icon = icons[status];
+  const labelPad2 = label.padEnd(16);
+  console.log(`  ${icon}  ${labelPad2}${detail}`);
+}
+function header(title) {
+  console.log("");
+  console.log(bold(`  ${title}`));
+  console.log(dim("  " + "\u2500".repeat(52)));
+}
+function formatAge(isoDate) {
+  if (!isoDate) return "nunca sincronizado";
+  const ms = Date.now() - new Date(isoDate).getTime();
+  const min = Math.floor(ms / 6e4);
+  if (min < 60) return `hace ${min}m`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `hace ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `hace ${days}d`;
+}
+function checkSkills() {
+  const skillsDir = getClaudeSkillsDir();
+  if (!existsSync21(skillsDir)) {
+    return { status: "err", detail: `no instaladas \u2014 ejecuta: dd-cli init o dd-cli skills install` };
+  }
+  const versionFile = path18.join(skillsDir, ".version");
+  if (!existsSync21(versionFile)) {
+    return { status: "warn", detail: `instaladas, sin versi\xF3n registrada` };
+  }
+  const installed = readFileSync14(versionFile, "utf-8").trim();
+  if (installed !== CLI_VERSION) {
+    return { status: "warn", detail: `v${installed} instalada, v${CLI_VERSION} disponible \u2014 ejecuta: dd-cli skills install` };
+  }
+  const skills2 = existsSync21(skillsDir) ? readdirSync4(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  return { status: "ok", detail: `${skills2} skills \xB7 v${installed}` };
+}
+function checkStatusline() {
+  const settingsPath = getClaudeGlobalSettingsPath();
+  if (!existsSync21(settingsPath)) {
+    return { status: "warn", detail: `no configurada \u2014 ejecuta: dd-cli install` };
+  }
+  try {
+    const settings = JSON.parse(readFileSync14(settingsPath, "utf-8"));
+    const sl = settings.statusLine;
+    if (sl?.type === "command" && sl.command === "dd-cli statusline") {
+      return { status: "ok", detail: `activa en ${settingsPath}` };
+    }
+    return { status: "warn", detail: `settings.json existe pero statusLine no es de DevFlow IA \u2014 ejecuta: dd-cli install` };
+  } catch {
+    return { status: "warn", detail: `settings.json inv\xE1lido` };
+  }
+}
+function checkClient(slug) {
+  const registry = loadRegistry();
+  const creds = loadCredentials();
+  const entry = registry.clients[slug];
+  const issues = [];
+  const details = {};
+  if (!entry) {
+    return { slug, status: "err", issues: ["no registrado \u2014 ejecuta: dd-cli register-client"], details };
+  }
+  if (!existsSync21(entry.local_cache)) {
+    issues.push(`contexto no clonado en ${entry.local_cache}`);
+  } else {
+    details["contexto"] = entry.local_cache;
+    const catalogPath = path18.join(entry.local_cache, ".devflow-context", "app-catalog.md");
+    if (existsSync21(catalogPath)) {
+      const content = readFileSync14(catalogPath, "utf-8");
+      const appCount = (content.match(/^\| [a-z]/gm) ?? []).length;
+      details["app catalog"] = `${appCount} apps catalogadas`;
+    } else {
+      issues.push("app-catalog.md no encontrado \u2014 ejecuta /devflow-ia:init-context");
+    }
+  }
+  const clientCreds = creds.clients[slug];
+  if (!clientCreds) {
+    issues.push("sin credenciales API \u2014 agrega --git-token al register-client");
+    details["API"] = "sin credenciales";
+  } else {
+    details["API"] = `${clientCreds.git_host} \xB7 ${clientCreds.git_group}`;
+  }
+  const age = formatAge(entry.last_synced ?? null);
+  const ageMs = entry.last_synced ? Date.now() - new Date(entry.last_synced).getTime() : Infinity;
+  const stale = ageMs > 7 * 24 * 60 * 60 * 1e3;
+  details["\xFAltima sync"] = age;
+  if (stale) issues.push(`contexto desactualizado (${age}) \u2014 ejecuta: dd-cli pull-context`);
+  const status = issues.length === 0 ? "ok" : issues.some((i) => i.includes("no clonado") || i.includes("no registrado")) ? "err" : "warn";
+  return { slug, status, issues, details };
+}
+function checkProject() {
+  const projectRoot = findDevFlowProjectRoot();
+  if (!projectRoot) return { isDevFlow: false };
+  const configPath = path18.join(projectRoot, ".devflow", "config.yml");
+  let connectedClient;
+  if (existsSync21(configPath)) {
+    try {
+      const content = readFileSync14(configPath, "utf-8");
+      const match = content.match(/^client:\s*(.+)$/m);
+      connectedClient = match?.[1]?.trim();
+    } catch {
+    }
+  }
+  let sessionStatus = "sin sesi\xF3n activa";
+  try {
+    const session = loadSession(projectRoot);
+    if (session?.started_at && !session.ended_at) {
+      const feature = session.feature_id ?? "?";
+      const type = session.dev_type ?? "?";
+      sessionStatus = `sesi\xF3n activa \xB7 ${feature} \xB7 ${devTypeBadge(type)}`;
+    } else if (session?.ended_at) {
+      sessionStatus = `sesi\xF3n cerrada \xB7 ${session.feature_id ?? "?"}`;
+    }
+  } catch {
+  }
+  return { isDevFlow: true, projectRoot, connectedClient, sessionStatus };
+}
+async function runHealth(opts = {}) {
+  const registry = loadRegistry();
+  const clientSlugs = opts.client ? [opts.client] : Object.keys(registry.clients);
+  if (opts.json) {
+    console.log(JSON.stringify({ version: CLI_VERSION, clients: clientSlugs }, null, 2));
+    return 0;
+  }
+  console.log("");
+  console.log(bold("DevFlow IA \u2014 Estado del entorno"));
+  console.log(dim(`  v${CLI_VERSION} \xB7 ${(/* @__PURE__ */ new Date()).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}`));
+  header("M\xC1QUINA");
+  check("CLI", "ok", `v${CLI_VERSION}`);
+  const slCheck = checkStatusline();
+  check("Statusline", slCheck.status, slCheck.detail);
+  if (!isClaudeCodeInstalled()) {
+    check("Claude Code", "err", `no detectado en ${getClaudeHome()}`);
+  } else {
+    check("Claude Code", "ok", `${getClaudeHome()}`);
+  }
+  const skillsCheck = checkSkills();
+  check("Skills", skillsCheck.status, skillsCheck.detail);
+  header(`CLIENTES REGISTRADOS (${clientSlugs.length})`);
+  if (clientSlugs.length === 0) {
+    console.log(`  ${warn("\u26A0")}  Ning\xFAn cliente registrado.`);
+    console.log(dim(`     Ejecuta: dd-cli register-client <slug> --context-url=<url>`));
+  }
+  let anyClientErr = false;
+  for (const slug of clientSlugs) {
+    const health = checkClient(slug);
+    const icon = health.status === "ok" ? ok("\u2713") : health.status === "warn" ? warn("\u26A0") : err("\u2717");
+    console.log("");
+    console.log(`  ${icon}  ${bold(slug)}`);
+    for (const [key, val] of Object.entries(health.details)) {
+      console.log(dim(`       ${key.padEnd(14)}${val}`));
+    }
+    for (const issue of health.issues) {
+      console.log(`       ${warn("\u2192")} ${issue}`);
+    }
+    if (health.status === "err") anyClientErr = true;
+  }
+  header("PROYECTO ACTUAL");
+  const proj = checkProject();
+  if (!proj.isDevFlow) {
+    check("Proyecto", "skip", `no es un proyecto DevFlow IA (sin .devflow/)`);
+    console.log(dim(`     Si quieres inicializar: dd-cli init [--client=<slug>]`));
+  } else {
+    check("Proyecto", "ok", proj.projectRoot ?? "");
+    if (proj.connectedClient) {
+      const clientOk = registry.clients[proj.connectedClient] !== void 0;
+      check("Cliente", clientOk ? "ok" : "warn", proj.connectedClient + (clientOk ? "" : " (no registrado en esta m\xE1quina)"));
+    } else {
+      check("Cliente", "warn", "no conectado \u2014 considera: dd-cli init --client=<slug>");
+    }
+    check("Sesi\xF3n", proj.sessionStatus?.startsWith("sesi\xF3n activa") ? "ok" : "skip", proj.sessionStatus ?? "");
+  }
+  console.log("");
+  const hasIssues = slCheck.status !== "ok" || skillsCheck.status !== "ok" || anyClientErr || clientSlugs.length === 0;
+  if (!hasIssues) {
+    console.log(`  ${ok("\u2713")}  ${bold("Todo listo.")} Puedes arrancar con: dd-cli start-session <HDU-id>`);
+  } else {
+    printInfo("Hay configuraciones pendientes. Revisa los \u26A0 y \u2717 arriba.");
+    console.log(dim("  dd-cli health --check-api  para verificar la conexi\xF3n a las APIs git"));
+  }
+  console.log("");
+  return hasIssues ? 1 : 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -3351,6 +3557,14 @@ program.command("init").description("Inicializa DevFlow IA en el proyecto actual
       });
       process.exit(exitCode);
     }
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("health").description("Estado de salud del entorno: m\xE1quina, clientes registrados y proyecto actual").option("--client <slug>", "Chequea solo este cliente").option("--check-api", "Verifica conectividad a las APIs git (m\xE1s lento)", false).option("--json", "Output JSON para scripts", false).action(async (opts) => {
+  try {
+    process.exit(await runHealth({ client: opts.client, checkApi: opts.checkApi, json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

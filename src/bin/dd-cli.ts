@@ -22,6 +22,7 @@ import { runWatch } from '../commands/watch.js';
 import { runInstall, runUninstall } from '../commands/install-cmd.js';
 import { runFlow } from '../commands/flow-cmd.js';
 import { runNewHdu } from '../commands/new-hdu-cmd.js';
+import { runHealth } from '../commands/health-cmd.js';
 
 const program = new Command();
 
@@ -55,6 +56,17 @@ program
       console.error(e instanceof Error ? e.message : String(e));
       process.exit(10);
     }
+  });
+
+program
+  .command('health')
+  .description('Estado de salud del entorno: máquina, clientes registrados y proyecto actual')
+  .option('--client <slug>', 'Chequea solo este cliente')
+  .option('--check-api', 'Verifica conectividad a las APIs git (más lento)', false)
+  .option('--json', 'Output JSON para scripts', false)
+  .action(async (opts) => {
+    try { process.exit(await runHealth({ client: opts.client, checkApi: opts.checkApi, json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
 program

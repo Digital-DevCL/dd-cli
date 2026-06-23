@@ -20,6 +20,8 @@ import { getStageContext } from '../flow-state/flow-stages.js';
 import { evaluateRules, partition } from '../enforcement/evaluator.js';
 import { devTypeBadge } from '../utils/output.js';
 import { CLI_VERSION } from '../index.js';
+import { loadRegistry } from '../types/registry.js';
+import { loadCredentials } from '../types/credentials.js';
 
 function formatDuration(startedAt: string): string {
   const start = new Date(startedAt).getTime();
@@ -33,13 +35,41 @@ function formatDuration(startedAt: string): string {
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
+/**
+ * Resumen del estado de clientes para el Caso C (fuera de proyecto DevFlow).
+ * Rápido: solo lee archivos locales, sin red.
+ */
+function clientStatusSummary(): string {
+  try {
+    const registry = loadRegistry();
+    const creds = loadCredentials();
+    const slugs = Object.keys(registry.clients);
+
+    if (slugs.length === 0) {
+      return `DevFlow IA · v${CLI_VERSION} · sin cliente · dd-cli register-client`;
+    }
+
+    if (slugs.length === 1) {
+      const slug = slugs[0]!;
+      const hasCreds = !!creds.clients[slug];
+      const indicator = hasCreds ? '✓' : '⚠ sin creds';
+      return `DevFlow IA · ${slug} ${indicator}`;
+    }
+
+    // Múltiples clientes: contar cuántos tienen credenciales
+    const withCreds = slugs.filter(s => !!creds.clients[s]).length;
+    return `DevFlow IA · ${slugs.length} clientes (${withCreds} con API)`;
+  } catch {
+    return `DevFlow IA · v${CLI_VERSION} ready`;
+  }
+}
+
 export function runStatusline(): string {
-  // Caso C — fuera de un proyecto DevFlow IA: branding minimal.
-  // Permite que la statusline esté instalada globalmente sin contaminar
-  // proyectos que no usan el método.
+  // Caso C — fuera de un proyecto DevFlow IA: muestra estado de clientes.
+  // Rápido (solo lectura local) y útil para saber si el setup está ok.
   const projectRoot = findDevFlowProjectRoot();
   if (!projectRoot) {
-    return `DevFlow IA · v${CLI_VERSION} ready`;
+    return clientStatusSummary();
   }
 
   let session;
