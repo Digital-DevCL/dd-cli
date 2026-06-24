@@ -134,19 +134,31 @@ El consultor Digital-Dev ejecuta `/devflow-ia:init-context` en Claude Code. La s
 **Modo auto (recomendado):** con un token de API del GitLab/GitHub de la empresa, la skill enumera todos los repos, detecta el stack, los patrones de auth y el CI/CD sin preguntar — solo confirma en ≤5 preguntas.
 
 ```bash
-# Primero, registrar el cliente con credenciales API
+# 1. Registrar el cliente con credenciales API (una vez por máquina)
+#    El PAT debe tener scope read_api (GitLab) o repo (GitHub)
+#    IMPORTANTE: la URL lleva el token embebido para que git clone funcione
 dd-cli register-client <empresa> \
-  --context-url=https://gitlab.com/<grupo>/<empresa>-devflow-context.git \
+  --context-url="https://oauth2:<PAT>@gitlab.com/<grupo>/<empresa>-devflow-context.git" \
   --git-token=<PAT> \
   --git-group=<grupo> \
-  --git-host=gitlab   # o github
+  --git-host=gitlab
 
-# Luego, en el directorio clonado del repo de contexto
+# 2. Verificar que quedó bien configurado
+dd-cli health --client=<empresa>
+# Debe mostrar: ✓ <empresa>  ·  API: gitlab · <grupo>
+
+# 3. Clonar el repo de contexto (si está vacío, es normal)
+git clone "https://oauth2:<PAT>@gitlab.com/<grupo>/<empresa>-devflow-context.git"
+cd <empresa>-devflow-context
+
+# 4. En Claude Code, pasar el slug como argumento
 claude
-❯ /devflow-ia:init-context
+❯ /devflow-ia:init-context <empresa>
 ```
 
-**Modo manual (fallback):** si no hay acceso API, la skill hace una entrevista estructurada de 7 bloques. Toma ~45-60 minutos.
+> **Tip v0.5.1:** pasar el slug como argumento (`/init-context iprsa`) garantiza que la skill encuentre las credenciales sin depender del nombre del directorio.
+
+**Modo manual (fallback):** si no hay acceso API o el modo auto falla, la skill ofrece una entrevista estructurada de 7 bloques (~45-60 minutos). Genera el mismo output.
 
 ### Cómo se mantiene
 
@@ -461,7 +473,7 @@ En Claude Code:
 ### Paso 1 — Instalar el CLI (una vez por máquina, cada persona del equipo)
 
 ```bash
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
 dd-cli install        # activa la statusline en Claude Code
 # reiniciar Claude Code
 ```
@@ -514,7 +526,7 @@ dd-cli doctor
 
 ```
 ✓ Claude Code detectado
-✓ Skills instaladas (20 skills v0.4.0)
+✓ Skills instaladas (20 skills v0.5.1)
 ✓ Hooks configurados
 ✓ Cliente conectado: <empresa>
 ✓ App catalog: N apps
@@ -575,7 +587,7 @@ Un dev nuevo en un equipo que ya usa DevFlow IA necesita:
 
 ```bash
 # 1. Instalar el CLI
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
 dd-cli install
 
 # 2. Registrar la empresa (el Tech Lead le pasa el PAT o la URL del repo de contexto)
@@ -669,8 +681,9 @@ Las 20 skills bundleadas con el CLI, organizadas por fase del método:
 ### Para el consultor Digital-Dev
 
 - [ ] Crear repo `<empresa>-devflow-context` en la plataforma de la empresa
-- [ ] `dd-cli register-client` con token API
-- [ ] Ejecutar `/devflow-ia:init-context` (modo auto si hay API, manual si no)
+- [ ] `dd-cli register-client <slug> --context-url="https://oauth2:<PAT>@..." --git-token=<PAT> --git-group=<grupo> --git-host=gitlab`
+- [ ] `dd-cli health --client=<slug>` — verificar que muestra ✓ antes de continuar
+- [ ] Ejecutar `/devflow-ia:init-context <slug>` (pasar slug como argumento para modo auto)
 - [ ] Revisar el `app-catalog.md` generado con el Tech Lead — confirmar que las apps están correctas
 - [ ] Revisar los `auth-profiles/` generados — completar los `[por confirmar]`
 - [ ] Documentar los templates de código en el `CLAUDE.md`

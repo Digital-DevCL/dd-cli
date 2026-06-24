@@ -32,11 +32,11 @@ dd-cli watch         → barra   (pane separado, opcional)
 
 ```bash
 # Instalar desde el release público
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.4.0/devflow-ia-cli-0.4.0.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
 
 # Verificar
 dd-cli --version
-# → 0.3.0
+# → 0.5.1
 
 # Activar la statusline en Claude Code (una sola vez por máquina)
 dd-cli install
@@ -44,7 +44,7 @@ dd-cli install
 ```
 
 > **¿Qué hace `dd-cli install`?**
-> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.4.0 ready`.
+> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.5.1 ready`.
 > Para desactivarla: `dd-cli uninstall`
 
 ---
@@ -67,7 +67,7 @@ DevFlow IA — init
 ✓ Detectado Claude Code en /Users/jorge/.claude
 ✓ Creado .devflow/ con session.json inicial (schema_version: 2)
 ✓ Skills instaladas en ~/.claude/commands/devflow-ia
-  20 skills (v0.4.0)
+  20 skills (v0.5.1)
 ✓ Hooks configurados en .claude/settings.json
 ✓ CLAUDE.md generado con auto-onboarding
   Edita las variables {{...}} con los datos del proyecto
@@ -504,7 +504,7 @@ dd-cli skills list
 ```
 
 ```
-Skills instaladas en ~/.claude/commands/devflow-ia (v0.4.0)
+Skills instaladas en ~/.claude/commands/devflow-ia (v0.5.1)
 
   ONBOARDING (para el consultor / Tech Lead)
   ⬛ /devflow-ia:init-context       Onboarding    opus    Discovery del cliente via API → fuente de la verdad
