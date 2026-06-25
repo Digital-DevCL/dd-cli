@@ -1127,6 +1127,31 @@ function parseMarkdownCatalog(content) {
   }
   return apps;
 }
+function renderCatalogMarkdown(catalog) {
+  const apps = catalog.apps;
+  const lines = [];
+  lines.push("# App catalog");
+  lines.push("");
+  lines.push("Generado por dd-cli context render \u2014 no editar a mano (edit\xE1 catalog.yml).");
+  lines.push("");
+  lines.push("| slug | tipo | app_origin | auth-profile | repo | ci_cd_profile | estado | preferred_dev_types |");
+  lines.push("|---|---|---|---|---|---|---|---|");
+  for (const app of apps) {
+    const cells = [
+      "`" + app.slug + "`",
+      app.type,
+      app.app_origin,
+      app.auth_profile ?? "\u2014",
+      app.repo ?? "\u2014",
+      app.ci_cd_profile ?? "\u2014",
+      app.status,
+      app.preferred_dev_types.join(", ") || "\u2014"
+    ];
+    lines.push("| " + cells.join(" | ") + " |");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
 
 // src/types/context-repo.ts
 import { z as z7 } from "zod";
@@ -3953,11 +3978,11 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve7) => {
+  await new Promise((resolve8) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve7();
+      resolve8();
     });
   });
 }
@@ -5386,6 +5411,111 @@ async function runContextValidate(repoPathArg, opts = {}) {
   return errors.length === 0 ? 0 : 3;
 }
 
+// src/commands/context-render.ts
+import { existsSync as existsSync28, readFileSync as readFileSync20, writeFileSync as writeFileSync15 } from "fs";
+import * as path27 from "path";
+async function runContextRender(repoPathArg, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const repoRoot = path27.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync28(repoRoot)) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: `El path "${repoRoot}" no existe.`,
+      recovery_hints: ["Corr\xE9 desde un context repo o pas\xE1 un path v\xE1lido."]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context render", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  if (!isContextRepo(repoRoot)) {
+    const err2 = {
+      code: "CONTEXT_REPO_INVALID",
+      message: "El directorio no parece ser un context repo (no hay .devflow-context/).",
+      context: { repo_root: repoRoot },
+      recovery_hints: [
+        "Valid\xE1 primero: dd-cli context validate",
+        "Si todav\xEDa no existe el context repo: /devflow-ia:client-onboard (Sprint 3)"
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context render", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const steps = [];
+  const yamlPath = getCatalogYamlPath(repoRoot);
+  const mdPath = getCatalogMarkdownPath(repoRoot);
+  if (!existsSync28(yamlPath)) {
+    steps.push({
+      type: "catalog-md",
+      from: yamlPath,
+      to: mdPath,
+      action: "skipped",
+      reason: "No hay catalog.yml \u2014 nada que renderizar. Corr\xE9 `dd-cli client migrate <slug>` si ten\xE9s app-catalog.md viejo."
+    });
+  } else {
+    try {
+      const catalog = loadCatalog(repoRoot);
+      if (!catalog) {
+        steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "skipped", reason: "catalog.yml vac\xEDo" });
+      } else {
+        const next = renderCatalogMarkdown(catalog);
+        const current = existsSync28(mdPath) ? readFileSync20(mdPath, "utf-8") : "";
+        if (current === next && !opts.force) {
+          steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "unchanged" });
+        } else if (opts.dryRun) {
+          steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "would-write" });
+        } else {
+          writeFileSync15(mdPath, next, "utf-8");
+          steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "written" });
+        }
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message.split("\n")[0] ?? e.message : String(e);
+      const err2 = {
+        code: "CATALOG_PARSE_ERROR",
+        message: `catalog.yml inv\xE1lido: ${errMsg}`,
+        context: { repo_root: repoRoot, yaml_path: yamlPath },
+        recovery_hints: [
+          "Valid\xE1 schema: dd-cli context validate",
+          `Revis\xE1 ${yamlPath} a mano`
+        ]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "context render", ...err2 }));
+      printErr(err2.message);
+      return 3;
+    }
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("context render", {
+      repo_root: repoRoot,
+      steps,
+      written: steps.some((s) => s.action === "written"),
+      dry_run: !!opts.dryRun
+    }));
+  }
+  console.log("");
+  console.log(bold(`Render de vistas derivadas: ${repoRoot}`));
+  console.log("");
+  for (const step of steps) {
+    const target = path27.relative(repoRoot, step.to);
+    switch (step.action) {
+      case "written":
+        printOk(`  ${target} \u2190 regenerado`);
+        break;
+      case "would-write":
+        printInfo(`  ${target} \u2190 cambiar\xEDa (dry-run)`);
+        break;
+      case "unchanged":
+        printDim(`  ${target} sin cambios`);
+        break;
+      case "skipped":
+        printDim(`  ${target} omitido (${step.reason ?? "sin raz\xF3n"})`);
+        break;
+    }
+  }
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -5497,6 +5627,14 @@ var contextCmd = program.command("context").description("Operaciones sobre conte
 contextCmd.command("validate [path]").description("Valida la forma estructural del context repo (stack.yml, catalog, refs).").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (repoPath, opts) => {
   try {
     process.exit(await runContextValidate(repoPath, { json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+contextCmd.command("render [path]").description("Regenera las vistas markdown derivadas desde los YAMLs can\xF3nicos.").option("--force", "Reescribe aunque el contenido sea id\xE9ntico.", false).option("--dry-run", "No escribe, solo reporta qu\xE9 cambiar\xEDa.", false).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (repoPath, opts) => {
+  try {
+    process.exit(await runContextRender(repoPath, { force: opts.force, dryRun: opts.dryRun, json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

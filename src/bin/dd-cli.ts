@@ -26,6 +26,7 @@ import { runHealth } from '../commands/health-cmd.js';
 import { runClientMigrate } from '../commands/client-migrate.js';
 import { runClientDiscover } from '../commands/client-discover.js';
 import { runContextValidate } from '../commands/context-validate.js';
+import { runContextRender } from '../commands/context-render.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -196,6 +197,17 @@ contextCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (repoPath: string | undefined, opts: { json?: boolean }) => {
     try { process.exit(await runContextValidate(repoPath, { json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+contextCmd
+  .command('render [path]')
+  .description('Regenera las vistas markdown derivadas desde los YAMLs canónicos.')
+  .option('--force', 'Reescribe aunque el contenido sea idéntico.', false)
+  .option('--dry-run', 'No escribe, solo reporta qué cambiaría.', false)
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (repoPath: string | undefined, opts: { force?: boolean; dryRun?: boolean; json?: boolean }) => {
+    try { process.exit(await runContextRender(repoPath, { force: opts.force, dryRun: opts.dryRun, json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
