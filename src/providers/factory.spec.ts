@@ -110,14 +110,23 @@ describe('providers/factory', () => {
       expect(typeof p.readFirstFound).toBe('function');
     });
 
-    it('write-side declarado: tira NotImplementedError en GitLab (Sprint 3)', async () => {
+    // S3-1a: createRepo + setBranchProtection ya están implementados.
+    // Los tests reales requieren mock HTTP (MSW), Sprint 4 (S4-6).
+    // Acá solo verificamos que createPullRequest y configureWebhook
+    // siguen siendo stub esperando sus implementaciones.
+
+    it('createPullRequest sigue siendo stub en GitLab (pendiente para HDUs)', async () => {
       const p = createProvider(creds());
-      await expect(p.createRepo?.({ name: 'foo' })).rejects.toThrow(/no está implementado/);
+      await expect(p.createPullRequest?.(1, {
+        source_branch: 'x', target_branch: 'main', title: 't', body: 'b',
+      })).rejects.toThrow(/no está implementado/);
     });
 
-    it('write-side declarado: tira NotImplementedError en GitHub (Sprint 3)', async () => {
+    it('configureWebhook sigue siendo stub en GitHub (pendiente para HDUs)', async () => {
       const p = createProvider(creds({ git_host: 'github' }));
-      await expect(p.createRepo?.({ name: 'foo' })).rejects.toThrow(/no está implementado/);
+      await expect(p.configureWebhook?.(1, {
+        url: 'https://x', events: ['push'],
+      })).rejects.toThrow(/no está implementado/);
     });
   });
 });

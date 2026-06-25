@@ -220,14 +220,93 @@ export class GitLabProvider implements GitProvider {
     return { path: candidates[0] ?? '', content: '', found: false };
   }
 
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
 
-  async createRepo(_opts: CreateRepoOpts): Promise<RepoMeta> {
-    throw new NotImplementedError('gitlab', 'createRepo');
+  /**
+   * Crea un proyecto en GitLab dentro del group del provider.
+   * Mapeo de visibility: 'private' → GitLab "private", 'internal' → "internal",
+   * 'public' → "public".
+   */
+  async createRepo(opts: CreateRepoOpts): Promise<RepoMeta> {
+    // GitLab necesita el ID del namespace (group). Lo resolvemos primero.
+    const group = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`) as {
+      id?: number;
+    };
+    if (!group.id) {
+      throw new ProviderError(
+        `No se pudo resolver el group "${this.group_or_org}" en GitLab.`,
+        { provider: 'gitlab' }
+      );
+    }
+
+    const body = {
+      name: opts.name,
+      path: opts.name,
+      namespace_id: group.id,
+      description: opts.description ?? '',
+      visibility: opts.visibility ?? 'private',
+      initialize_with_readme: opts.initialize_with_readme ?? true,
+      default_branch: opts.default_branch ?? 'main',
+    };
+
+    const created = await this.request('projects', {}, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }) as Record<string, unknown>;
+
+    return {
+      id: created['id'] as number,
+      slug: (created['path'] as string) ?? opts.name,
+      name: (created['name'] as string) ?? opts.name,
+      description: (created['description'] as string) ?? '',
+      url: (created['http_url_to_repo'] as string) ?? '',
+      ssh_url: (created['ssh_url_to_repo'] as string) ?? '',
+      default_branch: (created['default_branch'] as string) ?? body.default_branch,
+      last_push: (created['last_activity_at'] as string) ?? new Date().toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: (created['topics'] as string[]) ?? [],
+      archived: false,
+      ci_config_path: null,
+    };
   }
 
-  async setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void> {
-    throw new NotImplementedError('gitlab', 'setBranchProtection');
+  /**
+   * Configura branch protection en GitLab.
+   * GitLab usa access levels: 40 = Maintainer, 30 = Developer.
+   * Sin protección previa: crea. Con protección previa: reemplaza (idempotente).
+   */
+  async setBranchProtection(repoIdOrSlug: string | number, rules: BranchProtectionRules): Promise<void> {
+    // GitLab requiere unprotect antes de re-protect (idempotencia)
+    try {
+      await this.request(
+        `projects/${repoIdOrSlug}/protected_branches/${encodeURIComponent(rules.branch)}`,
+        {},
+        { method: 'DELETE' }
+      );
+    } catch {
+      // OK si no estaba protegida — seguimos
+    }
+
+    const allowForce = rules.allow_force_push ?? false;
+    const requirePR = rules.require_pull_request ?? true;
+    // Sin PR: developers pueden push directo (30). Con PR: solo maintainers (40).
+    const pushLevel = requirePR ? 40 : 30;
+    const mergeLevel = 40;
+
+    await this.request(
+      `projects/${repoIdOrSlug}/protected_branches`,
+      {},
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: rules.branch,
+          push_access_level: pushLevel,
+          merge_access_level: mergeLevel,
+          allow_force_push: allowForce,
+        }),
+      }
+    );
   }
 
   async createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef> {

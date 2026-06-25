@@ -207,14 +207,78 @@ export class GitHubProvider implements GitProvider {
     return { path: candidates[0] ?? '', content: '', found: false };
   }
 
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
 
-  async createRepo(_opts: CreateRepoOpts): Promise<RepoMeta> {
-    throw new NotImplementedError('github', 'createRepo');
+  /**
+   * Crea un repo en GitHub dentro del org del provider.
+   * Si el provider apunta a un user (no org), usa el endpoint /user/repos.
+   */
+  async createRepo(opts: CreateRepoOpts): Promise<RepoMeta> {
+    // Detectar si group_or_org es un user vs org probando el endpoint
+    let endpoint = `orgs/${this.group_or_org}/repos`;
+    try {
+      await this.request(`orgs/${this.group_or_org}`);
+    } catch {
+      // Si no es org, asumimos que es el user autenticado
+      endpoint = 'user/repos';
+    }
+
+    const body = {
+      name: opts.name,
+      description: opts.description ?? '',
+      private: (opts.visibility ?? 'private') !== 'public',
+      auto_init: opts.initialize_with_readme ?? true,
+      ...(opts.default_branch ? { default_branch: opts.default_branch } : {}),
+    };
+
+    const { json } = await this.request(endpoint, {}, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    const created = json as Record<string, unknown>;
+
+    return {
+      id: created['id'] as number,
+      slug: (created['name'] as string) ?? opts.name,
+      name: (created['full_name'] as string) ?? opts.name,
+      description: (created['description'] as string) ?? '',
+      url: (created['clone_url'] as string) ?? '',
+      ssh_url: (created['ssh_url'] as string) ?? '',
+      default_branch: (created['default_branch'] as string) ?? opts.default_branch ?? 'main',
+      last_push: (created['pushed_at'] as string) ?? new Date().toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: (created['topics'] as string[]) ?? [],
+      archived: false,
+      ci_config_path: null,
+    };
   }
 
-  async setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void> {
-    throw new NotImplementedError('github', 'setBranchProtection');
+  /**
+   * Configura branch protection en GitHub via PUT /repos/<owner>/<repo>/branches/<b>/protection.
+   * Idempotente: PUT reemplaza la config existente.
+   */
+  async setBranchProtection(repoIdOrSlug: string | number, rules: BranchProtectionRules): Promise<void> {
+    const requirePR = rules.require_pull_request ?? true;
+    const requiredApprovals = rules.required_approvals ?? 1;
+    const allowForce = rules.allow_force_push ?? false;
+
+    const body: Record<string, unknown> = {
+      required_status_checks: null,
+      enforce_admins: false,
+      required_pull_request_reviews: requirePR
+        ? { required_approving_review_count: requiredApprovals }
+        : null,
+      restrictions: null,
+      allow_force_pushes: allowForce,
+      allow_deletions: false,
+    };
+
+    await this.request(
+      `repos/${this.group_or_org}/${repoIdOrSlug}/branches/${encodeURIComponent(rules.branch)}/protection`,
+      {},
+      { method: 'PUT', body: JSON.stringify(body) }
+    );
   }
 
   async createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef> {

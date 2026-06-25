@@ -27,6 +27,10 @@ import { runClientMigrate } from '../commands/client-migrate.js';
 import { runClientDiscover } from '../commands/client-discover.js';
 import { runContextValidate } from '../commands/context-validate.js';
 import { runContextRender } from '../commands/context-render.js';
+import { runClientNew } from '../commands/client-new.js';
+import { runClientPublish } from '../commands/client-publish.js';
+import { runClientShow } from '../commands/client-show.js';
+import { runClientList, runHome } from '../commands/client-list.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -173,6 +177,35 @@ const clientCmd = program
   .description('Gestión de clientes registrados (Sprint 3 agregará new/show/list/...)');
 
 clientCmd
+  .command('new <slug>')
+  .description('Onboarding inicial del cliente: registro + crea context repo + clone + state REGISTERED.')
+  .option('--name <name>', 'Nombre completo del cliente (para modo non-interactive)')
+  .option('--provider <type>', 'gitlab | github')
+  .option('--base-url <url>', 'URL base del provider (default según provider)')
+  .option('--group <name>', 'Group/Org del provider')
+  .option('--git-token <token>', 'PAT con scope api/repo (sensible — preferir --git-token-env)')
+  .option('--no-branch-protection', 'No aplicar branch protection (solo development)')
+  .option('--yes', 'No pedir confirmaciones (CI / scripts)', false)
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: any) => {
+    try {
+      process.exit(await runClientNew(slug, {
+        name: opts.name,
+        provider: opts.provider,
+        baseUrl: opts.baseUrl,
+        group: opts.group,
+        gitToken: opts.gitToken,
+        noBranchProtection: opts.branchProtection === false,
+        yes: opts.yes,
+        json: opts.json,
+      }));
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(10);
+    }
+  });
+
+clientCmd
   .command('migrate <slug>')
   .description('Migra un cliente legacy al schema nuevo (stack.yml + catalog.yml).')
   .option('--apply', 'Aplica los cambios. Sin esto, dry-run.', false)
@@ -209,6 +242,52 @@ contextCmd
   .action(async (repoPath: string | undefined, opts: { force?: boolean; dryRun?: boolean; json?: boolean }) => {
     try { process.exit(await runContextRender(repoPath, { force: opts.force, dryRun: opts.dryRun, json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('show <slug>')
+  .description('Dashboard del cliente: stack, apps, profiles, último sync, acciones sugeridas.')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: { json?: boolean }) => {
+    try { process.exit(await runClientShow(slug, { json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('list')
+  .description('Lista todos los clientes registrados con estado, apps y último sync.')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (opts: { json?: boolean }) => {
+    try { process.exit(await runClientList({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('home')
+  .description('Dashboard del operador: tus clientes, sesión activa, sistema.')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (opts: { json?: boolean }) => {
+    try { process.exit(await runHome({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('publish <slug>')
+  .description('Valida + commit + push del context repo. Avanza state → READY.')
+  .option('--no-push', 'Solo commit local, no pushear al remoto.')
+  .option('--ignore-warnings', 'Publica aunque context validate reporte warnings.', false)
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: any) => {
+    try {
+      process.exit(await runClientPublish(slug, {
+        noPush: opts.push === false,
+        ignoreWarnings: opts.ignoreWarnings,
+        json: opts.json,
+      }));
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(10);
+    }
   });
 
 clientCmd

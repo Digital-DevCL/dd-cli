@@ -764,6 +764,40 @@ var CLIENT_STATES = [
   "ACTIVE",
   "NEEDS_REFRESH"
 ];
+var STATE_TRANSITIONS = {
+  REGISTERED: ["DISCOVERED", "DRAFT"],
+  // discover → DISCOVERED; review → DRAFT
+  DISCOVERED: ["DRAFT", "READY", "DISCOVERED"],
+  // review → DRAFT; publish skip review → READY; re-discover idempotente
+  DRAFT: ["READY", "DRAFT", "DISCOVERED"],
+  // publish → READY; re-review → DRAFT; rollback a discovery
+  READY: ["ACTIVE", "NEEDS_REFRESH", "DRAFT", "DISCOVERED"],
+  // init → ACTIVE; refresh → DRAFT/DISCOVERED; rollback
+  ACTIVE: ["NEEDS_REFRESH", "ACTIVE", "READY"],
+  NEEDS_REFRESH: ["DRAFT", "DISCOVERED", "READY", "ACTIVE"]
+  // refresh → DRAFT; sync sin cambios → READY
+};
+function canTransitionTo(from, to) {
+  if (from === void 0) return to === "REGISTERED";
+  if (from === to) return STATE_TRANSITIONS[from].includes(to);
+  return STATE_TRANSITIONS[from].includes(to);
+}
+function suggestedCommandFor(state, slug) {
+  switch (state) {
+    case "REGISTERED":
+      return `dd-cli client discover ${slug}`;
+    case "DISCOVERED":
+      return `dd-cli client publish ${slug}    # o /devflow-ia:client-review`;
+    case "DRAFT":
+      return `dd-cli client publish ${slug}`;
+    case "READY":
+      return `cd <repo-de-codigo> && dd-cli init --client=${slug}`;
+    case "ACTIVE":
+      return null;
+    case "NEEDS_REFRESH":
+      return `dd-cli client refresh ${slug}`;
+  }
+}
 var PROVIDERS = ["gitlab", "github"];
 var ClientStateErrorSchema = z3.object({
   code: z3.enum(ERROR_CODES),
@@ -811,9 +845,17 @@ function writeClientState(state) {
   const validated = ClientStateSchema.parse(state);
   writeFileSync3(statePath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
 }
-function updateClientState(slug, patch) {
+function updateClientState(slug, patch, opts = {}) {
   const existing = readClientState(slug);
   const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (patch.state && !opts.allowAnyTransition) {
+    const fromState = existing?.state;
+    if (!canTransitionTo(fromState, patch.state)) {
+      throw new Error(
+        `Transici\xF3n de estado inv\xE1lida para "${slug}": ${fromState ?? "(none)"} \u2192 ${patch.state}. Transiciones legales desde ${fromState ?? "(none)"}: ${fromState ? STATE_TRANSITIONS[fromState].join(", ") : "REGISTERED"}.`
+      );
+    }
+  }
   const base = existing ?? {
     schema_version: "1.0",
     slug,
@@ -1207,6 +1249,13 @@ ${result.error.message}`);
   }
   return result.data;
 }
+function saveContextRepoMarker(repoRoot, marker) {
+  const dir = path9.join(repoRoot, MARKER_DIR);
+  if (!existsSync10(dir)) mkdirSync7(dir, { recursive: true });
+  const validated = ContextRepoSchema.parse(marker);
+  const yamlStr = yaml5.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync7(getContextRepoMarkerPath(repoRoot), yamlStr, "utf-8");
+}
 
 // src/providers/types.ts
 var ProviderError = class extends Error {
@@ -1380,12 +1429,80 @@ var GitLabProvider = class {
     }
     return { path: candidates[0] ?? "", content: "", found: false };
   }
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
-  async createRepo(_opts) {
-    throw new NotImplementedError("gitlab", "createRepo");
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
+  /**
+   * Crea un proyecto en GitLab dentro del group del provider.
+   * Mapeo de visibility: 'private' → GitLab "private", 'internal' → "internal",
+   * 'public' → "public".
+   */
+  async createRepo(opts) {
+    const group = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`);
+    if (!group.id) {
+      throw new ProviderError(
+        `No se pudo resolver el group "${this.group_or_org}" en GitLab.`,
+        { provider: "gitlab" }
+      );
+    }
+    const body = {
+      name: opts.name,
+      path: opts.name,
+      namespace_id: group.id,
+      description: opts.description ?? "",
+      visibility: opts.visibility ?? "private",
+      initialize_with_readme: opts.initialize_with_readme ?? true,
+      default_branch: opts.default_branch ?? "main"
+    };
+    const created = await this.request("projects", {}, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    return {
+      id: created["id"],
+      slug: created["path"] ?? opts.name,
+      name: created["name"] ?? opts.name,
+      description: created["description"] ?? "",
+      url: created["http_url_to_repo"] ?? "",
+      ssh_url: created["ssh_url_to_repo"] ?? "",
+      default_branch: created["default_branch"] ?? body.default_branch,
+      last_push: created["last_activity_at"] ?? (/* @__PURE__ */ new Date()).toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: created["topics"] ?? [],
+      archived: false,
+      ci_config_path: null
+    };
   }
-  async setBranchProtection(_repo, _rules) {
-    throw new NotImplementedError("gitlab", "setBranchProtection");
+  /**
+   * Configura branch protection en GitLab.
+   * GitLab usa access levels: 40 = Maintainer, 30 = Developer.
+   * Sin protección previa: crea. Con protección previa: reemplaza (idempotente).
+   */
+  async setBranchProtection(repoIdOrSlug, rules) {
+    try {
+      await this.request(
+        `projects/${repoIdOrSlug}/protected_branches/${encodeURIComponent(rules.branch)}`,
+        {},
+        { method: "DELETE" }
+      );
+    } catch {
+    }
+    const allowForce = rules.allow_force_push ?? false;
+    const requirePR = rules.require_pull_request ?? true;
+    const pushLevel = requirePR ? 40 : 30;
+    const mergeLevel = 40;
+    await this.request(
+      `projects/${repoIdOrSlug}/protected_branches`,
+      {},
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: rules.branch,
+          push_access_level: pushLevel,
+          merge_access_level: mergeLevel,
+          allow_force_push: allowForce
+        })
+      }
+    );
   }
   async createPullRequest(_repo, _opts) {
     throw new NotImplementedError("gitlab", "createPullRequest (createMergeRequest)");
@@ -1539,12 +1656,67 @@ var GitHubProvider = class {
     }
     return { path: candidates[0] ?? "", content: "", found: false };
   }
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
-  async createRepo(_opts) {
-    throw new NotImplementedError("github", "createRepo");
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
+  /**
+   * Crea un repo en GitHub dentro del org del provider.
+   * Si el provider apunta a un user (no org), usa el endpoint /user/repos.
+   */
+  async createRepo(opts) {
+    let endpoint = `orgs/${this.group_or_org}/repos`;
+    try {
+      await this.request(`orgs/${this.group_or_org}`);
+    } catch {
+      endpoint = "user/repos";
+    }
+    const body = {
+      name: opts.name,
+      description: opts.description ?? "",
+      private: (opts.visibility ?? "private") !== "public",
+      auto_init: opts.initialize_with_readme ?? true,
+      ...opts.default_branch ? { default_branch: opts.default_branch } : {}
+    };
+    const { json } = await this.request(endpoint, {}, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    const created = json;
+    return {
+      id: created["id"],
+      slug: created["name"] ?? opts.name,
+      name: created["full_name"] ?? opts.name,
+      description: created["description"] ?? "",
+      url: created["clone_url"] ?? "",
+      ssh_url: created["ssh_url"] ?? "",
+      default_branch: created["default_branch"] ?? opts.default_branch ?? "main",
+      last_push: created["pushed_at"] ?? (/* @__PURE__ */ new Date()).toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: created["topics"] ?? [],
+      archived: false,
+      ci_config_path: null
+    };
   }
-  async setBranchProtection(_repo, _rules) {
-    throw new NotImplementedError("github", "setBranchProtection");
+  /**
+   * Configura branch protection en GitHub via PUT /repos/<owner>/<repo>/branches/<b>/protection.
+   * Idempotente: PUT reemplaza la config existente.
+   */
+  async setBranchProtection(repoIdOrSlug, rules) {
+    const requirePR = rules.require_pull_request ?? true;
+    const requiredApprovals = rules.required_approvals ?? 1;
+    const allowForce = rules.allow_force_push ?? false;
+    const body = {
+      required_status_checks: null,
+      enforce_admins: false,
+      required_pull_request_reviews: requirePR ? { required_approving_review_count: requiredApprovals } : null,
+      restrictions: null,
+      allow_force_pushes: allowForce,
+      allow_deletions: false
+    };
+    await this.request(
+      `repos/${this.group_or_org}/${repoIdOrSlug}/branches/${encodeURIComponent(rules.branch)}/protection`,
+      {},
+      { method: "PUT", body: JSON.stringify(body) }
+    );
   }
   async createPullRequest(_repo, _opts) {
     throw new NotImplementedError("github", "createPullRequest");
@@ -2430,41 +2602,41 @@ function extractBlockerHint(message) {
 import { input, select } from "@inquirer/prompts";
 
 // src/commands/start-session.ts
-function buildStartSessionState(input3, cliVersion, now = () => (/* @__PURE__ */ new Date()).toISOString()) {
+function buildStartSessionState(input4, cliVersion, now = () => (/* @__PURE__ */ new Date()).toISOString()) {
   const warnings = [];
-  if (input3.mode === "local" && !input3.devType) {
+  if (input4.mode === "local" && !input4.devType) {
     warnings.push(
       "Modo local sin dev_type especificado. Se requiere flag --type=<tipo> o entrevista interactiva (no implementada en este stub)."
     );
   }
-  if (input3.mode === "platform" && !input3.devType) {
+  if (input4.mode === "platform" && !input4.devType) {
     warnings.push(
       "Modo platform: llamar primero devflow_get_feature() para obtener dev_type"
     );
   }
-  const enforcementRules = input3.devType ? enforcementRuleIdsForDevType(input3.devType) : [];
+  const enforcementRules = input4.devType ? enforcementRuleIdsForDevType(input4.devType) : [];
   const session = {
-    feature_id: input3.featureId,
-    feature_name: input3.featureName ?? null,
+    feature_id: input4.featureId,
+    feature_name: input4.featureName ?? null,
     session_id: `sess-${now()}`,
     started_at: now(),
     ended_at: null,
     last_heartbeat: now(),
-    mode: input3.mode,
+    mode: input4.mode,
     platform_url: null,
     unclosed: false,
-    dev_type: input3.devType ?? null,
-    dev_type_subtype: input3.devTypeSubtype ?? null,
-    dev_type_source: input3.mode === "platform" ? "tech-lead-approval" : "business-brief",
-    dev_type_rationale: input3.devTypeRationale ?? "",
+    dev_type: input4.devType ?? null,
+    dev_type_subtype: input4.devTypeSubtype ?? null,
+    dev_type_source: input4.mode === "platform" ? "tech-lead-approval" : "business-brief",
+    dev_type_rationale: input4.devTypeRationale ?? "",
     dev_type_locked: false,
     // LOCK ocurre en /new-spec → devflow_save_spec
     dev_type_locked_at: null,
-    apps_affected: input3.appsAffected ?? [],
+    apps_affected: input4.appsAffected ?? [],
     repo_context_path: null,
     baseline_path: null,
-    legacy_system: input3.legacySystem ?? null,
-    vendor: input3.vendor ?? null,
+    legacy_system: input4.legacySystem ?? null,
+    vendor: input4.vendor ?? null,
     enforcement_rules: enforcementRules,
     flow_state: "started",
     active_change: null,
@@ -3045,60 +3217,60 @@ import * as path15 from "path";
 
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
-function reclassify(input3) {
-  if (input3.session.mode !== "platform") {
+function reclassify(input4) {
+  if (input4.session.mode !== "platform") {
     return {
       ok: false,
       error: "NOT_PLATFORM_MODE",
       message: "Reclasificaci\xF3n solo permitida en modo platform. El audit-log requiere persistencia server-side."
     };
   }
-  if (!input3.session.started_at) {
+  if (!input4.session.started_at) {
     return {
       ok: false,
       error: "NO_SESSION",
       message: "No hay sesi\xF3n activa para reclasificar."
     };
   }
-  if (input3.reason.trim().length < MIN_REASON_CHARS) {
+  if (input4.reason.trim().length < MIN_REASON_CHARS) {
     return {
       ok: false,
       error: "REASON_TOO_SHORT",
       message: `Justificaci\xF3n requiere al menos ${MIN_REASON_CHARS} caracteres.`
     };
   }
-  if (input3.callerRole !== "tech-lead" && input3.callerRole !== "admin") {
+  if (input4.callerRole !== "tech-lead" && input4.callerRole !== "admin") {
     return {
       ok: false,
       error: "INSUFFICIENT_ROLE",
       message: "Solo Tech Lead o admin pueden reclassify despu\xE9s del lock."
     };
   }
-  if (input3.session.dev_type === input3.newType) {
+  if (input4.session.dev_type === input4.newType) {
     return {
       ok: false,
       error: "SAME_TYPE",
-      message: `El tipo ya es ${input3.newType}. Nada que reclasificar.`
+      message: `El tipo ya es ${input4.newType}. Nada que reclasificar.`
     };
   }
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const updated = {
-    ...input3.session,
-    dev_type: input3.newType,
+    ...input4.session,
+    dev_type: input4.newType,
     dev_type_subtype: null,
     // reset al cambiar tipo
     dev_type_source: "reclassify",
-    dev_type_rationale: input3.reason,
+    dev_type_rationale: input4.reason,
     dev_type_locked: true,
     dev_type_locked_at: now,
-    dev_type_reclassified_from: input3.session.dev_type ?? void 0,
+    dev_type_reclassified_from: input4.session.dev_type ?? void 0,
     // Recalcular enforcement_rules
-    enforcement_rules: enforcementRuleIdsForDevType(input3.newType)
+    enforcement_rules: enforcementRuleIdsForDevType(input4.newType)
   };
   return {
     ok: true,
     updatedSession: updated,
-    message: `Reclasificaci\xF3n aplicada: ${input3.session.dev_type} \u2192 ${input3.newType}. La plataforma generar\xE1 audit-log y evaluar\xE1 delta de lead-time.`
+    message: `Reclasificaci\xF3n aplicada: ${input4.session.dev_type} \u2192 ${input4.newType}. La plataforma generar\xE1 audit-log y evaluar\xE1 delta de lead-time.`
   };
 }
 
@@ -3349,8 +3521,8 @@ function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
     if (!existsSync18(cacheDir)) {
-      const { mkdirSync: mkdirSync16 } = __require("fs");
-      mkdirSync16(path17.dirname(cacheDir), { recursive: true });
+      const { mkdirSync: mkdirSync17 } = __require("fs");
+      mkdirSync17(path17.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -3866,8 +4038,8 @@ function activeChangeName(projectRoot) {
   try {
     const changes = path19.join(projectRoot, "openspec", "changes");
     if (!existsSync21(changes)) return null;
-    const { readdirSync: readdirSync6, statSync: statSync5 } = __require("fs");
-    const entries = readdirSync6(changes).filter((e) => {
+    const { readdirSync: readdirSync7, statSync: statSync5 } = __require("fs");
+    const entries = readdirSync7(changes).filter((e) => {
       return statSync5(path19.join(changes, e)).isDirectory() && existsSync21(path19.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
@@ -5516,6 +5688,808 @@ async function runContextRender(repoPathArg, opts = {}) {
   return 0;
 }
 
+// src/commands/client-new.ts
+import { execSync as execSync6 } from "child_process";
+import { existsSync as existsSync29, mkdirSync as mkdirSync16, rmSync as rmSync3 } from "fs";
+import * as path28 from "path";
+import * as os3 from "os";
+import { input as input3, password, select as select3, confirm as confirm2 } from "@inquirer/prompts";
+var isTTY9 = process.stdout.isTTY;
+function runGit4(cmd, cwd) {
+  return execSync6(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
+function defaultBaseUrlFor2(type) {
+  return type === "github" ? "https://api.github.com" : "https://gitlab.com";
+}
+function contextRepoNameFor(slug) {
+  return `${slug}-devflow-context`;
+}
+async function runClientNew(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug del cliente o no es kebab-case. Uso: dd-cli client new <slug>",
+      recovery_hints: ["El slug debe ser kebab-case: min\xFAsculas, n\xFAmeros y guiones."]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const existingClient = getClient(slug);
+  if (existingClient && !opts.yes && !jsonMode && isTTY9) {
+    const proceed = await confirm2({
+      message: `El cliente "${slug}" ya est\xE1 registrado. \xBFContinuar e intentar reparar lo que falte?`,
+      default: false
+    });
+    if (!proceed) {
+      printDim("Cancelado.");
+      return 0;
+    }
+  }
+  if (!jsonMode) console.log(bold(`
+Onboarding del cliente: ${slug}
+`));
+  let name = opts.name;
+  let provider = opts.provider;
+  let baseUrl = opts.baseUrl;
+  let group = opts.group;
+  let gitToken = opts.gitToken;
+  const needsInteractive = !name || !provider || !baseUrl || !group || !gitToken;
+  if (needsInteractive && !isTTY9) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: "En modo no interactivo se necesitan --name, --provider, --base-url, --group y --git-token.",
+      recovery_hints: [
+        `Ejemplo: dd-cli client new ${slug} --name="X" --provider=gitlab --base-url=https://gitlab.com --group=foo --git-token=glpat-...`
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  if (!name) {
+    name = await input3({
+      message: "Nombre completo del cliente:",
+      default: slug,
+      validate: (v) => v.trim().length > 0 || "El nombre es obligatorio"
+    });
+  }
+  if (!provider) {
+    provider = await select3({
+      message: "Plataforma git:",
+      choices: [
+        { name: "GitLab (cloud o self-hosted)", value: "gitlab" },
+        { name: "GitHub (cloud o Enterprise)", value: "github" }
+      ],
+      default: "gitlab"
+    });
+  }
+  if (!baseUrl) {
+    baseUrl = await input3({
+      message: "URL base (cloud o self-hosted):",
+      default: defaultBaseUrlFor2(provider),
+      validate: (v) => /^https?:\/\//.test(v) || "Debe ser una URL http(s)"
+    });
+  }
+  if (!group) {
+    group = await input3({
+      message: provider === "github" ? "Org / usuario:" : "Group:",
+      validate: (v) => v.trim().length > 0 || "Es obligatorio"
+    });
+  }
+  if (!gitToken) {
+    gitToken = await password({
+      message: "Token API (PAT con scope api/repo):",
+      mask: "*",
+      validate: (v) => v.trim().length > 0 || "El token es obligatorio"
+    });
+  }
+  const providerCreds = {
+    git_token: gitToken,
+    git_host: provider,
+    git_base_url: baseUrl,
+    git_group: group
+  };
+  const tempProvider = createProvider(providerCreds, {
+    type: provider,
+    base_url: baseUrl,
+    group_or_org: group
+  });
+  if (!jsonMode) printInfo(`Validando token contra ${provider} / ${group} ...`);
+  const tokenCheck = await tempProvider.validateToken({
+    required_for: opts.noBranchProtection ? ["read", "create_repo"] : ["read", "create_repo", "branch_protection"]
+  });
+  if (!tokenCheck.valid) {
+    const err2 = {
+      code: "TOKEN_INVALID",
+      message: tokenCheck.message,
+      context: { provider, group_or_org: group },
+      recovery_hints: ["Regener\xE1 el token con scope `api` (GitLab) o `repo` (GitHub)."]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+    printErr(err2.message);
+    return 1;
+  }
+  if (tokenCheck.scopes_missing.length > 0) {
+    const err2 = {
+      code: "TOKEN_INSUFFICIENT_SCOPE",
+      message: `Al token le faltan scopes: ${tokenCheck.scopes_missing.join(", ")}.`,
+      context: {
+        provider,
+        scopes_present: tokenCheck.scopes_present,
+        scopes_missing: tokenCheck.scopes_missing
+      },
+      recovery_hints: [
+        provider === "gitlab" ? "GitLab: regener\xE1 el PAT con scope `api`." : "GitHub: PAT classic con `repo` o fine-grained con Administration:Write."
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+    printErr(err2.message);
+    printInfo("Para continuar igual: agreg\xE1 --no-branch-protection si no quer\xE9s ese scope.");
+    return 2;
+  }
+  if (!jsonMode) {
+    printOk(`Token v\xE1lido \u2014 usuario ${tokenCheck.user ?? "desconocido"}`);
+    if (tokenCheck.is_admin_of_group === false) {
+      printWarn(`No sos admin/Maintainer de ${group} \u2014 la creaci\xF3n del repo puede fallar.`);
+    }
+  }
+  const repoName = contextRepoNameFor(slug);
+  const existingRepos = await tempProvider.listGroupRepos();
+  const existingContextRepo = existingRepos.find((r) => r.slug === repoName);
+  let contextRepoUrl;
+  let contextRepoCreated = false;
+  let repoIdOrSlug;
+  if (existingContextRepo) {
+    contextRepoUrl = existingContextRepo.url;
+    repoIdOrSlug = provider === "gitlab" ? existingContextRepo.id : existingContextRepo.slug;
+    if (!jsonMode) printDim(`Context repo ya existe: ${contextRepoUrl}`);
+  } else {
+    if (!jsonMode) printInfo(`Creando context repo ${group}/${repoName} ...`);
+    try {
+      const created = await tempProvider.createRepo({
+        name: repoName,
+        description: `DevFlow IA context repository for ${name}`,
+        visibility: "private",
+        initialize_with_readme: true,
+        default_branch: "main"
+      });
+      contextRepoUrl = created.url;
+      repoIdOrSlug = provider === "gitlab" ? created.id : created.slug;
+      contextRepoCreated = true;
+      if (!jsonMode) printOk(`Context repo creado: ${contextRepoUrl}`);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const err2 = {
+        code: "INTERNAL_ERROR",
+        message: `No se pudo crear el repo en ${provider}: ${errMsg}`,
+        context: { provider, group_or_org: group, repo_name: repoName },
+        recovery_hints: [
+          "Verific\xE1 que sos admin/Maintainer del group",
+          `Verific\xE1 que el repo "${repoName}" no exista ya (si existe, dd-cli client new lo detecta y reutiliza)`
+        ]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+      printErr(err2.message);
+      return 1;
+    }
+  }
+  let branchProtectionApplied = false;
+  if (!opts.noBranchProtection) {
+    try {
+      await tempProvider.setBranchProtection(repoIdOrSlug, {
+        branch: "main",
+        require_pull_request: false,
+        // primer publish va directo a main (D-1)
+        allow_force_push: false
+      });
+      branchProtectionApplied = true;
+      if (!jsonMode) printOk("Branch protection aplicada a main (sin require PR para el primer publish)");
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if (!jsonMode) printWarn(`No se pudo aplicar branch protection: ${errMsg}`);
+    }
+  }
+  const cacheDir = getClientCacheDir(slug);
+  const cloneUrl = embedTokenInUrl(contextRepoUrl, gitToken, provider);
+  if (existsSync29(cacheDir)) {
+    try {
+      runGit4("git pull --ff-only", cacheDir);
+      if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
+    } catch {
+      if (!jsonMode) printWarn("Pull fall\xF3; re-clonando ...");
+      rmSync3(cacheDir, { recursive: true, force: true });
+    }
+  }
+  if (!existsSync29(cacheDir)) {
+    const parentDir = path28.dirname(cacheDir);
+    if (!existsSync29(parentDir)) mkdirSync16(parentDir, { recursive: true });
+    try {
+      runGit4(`git clone "${cloneUrl}" "${cacheDir}"`);
+      if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const err2 = {
+        code: "GIT_CLONE_FAILED",
+        message: `git clone fall\xF3: ${errMsg}`,
+        context: { url: contextRepoUrl, cache_dir: cacheDir },
+        recovery_hints: ["Verific\xE1 que el token tenga acceso al repo reci\xE9n creado."]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client new", ...err2 }));
+      printErr(err2.message);
+      return 1;
+    }
+  }
+  registerClient({
+    slug,
+    name,
+    context_url: contextRepoUrl,
+    local_cache: cacheDir,
+    last_synced: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  setClientCredentials(slug, providerCreds);
+  if (!jsonMode) printOk("Registry + credentials guardados (~/.devflow/)");
+  try {
+    const markerPath = getContextRepoMarkerPath(cacheDir);
+    if (!existsSync29(markerPath) || opts.yes) {
+      saveContextRepoMarker(cacheDir, {
+        kind: "context-repo",
+        schema_version: "1.1",
+        client: { slug, name },
+        provider: { type: provider, base_url: baseUrl, group_or_org: group },
+        generated_by: "/devflow-ia:client-onboard",
+        last_generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+        cli_version: CLI_VERSION
+      });
+      try {
+        runGit4("git add .devflow-context/.context-repo.yml", cacheDir);
+        runGit4(`git -c commit.gpgsign=false commit -m "chore: devflow context marker for ${slug}"`, cacheDir);
+        runGit4("git push origin HEAD", cacheDir);
+        if (!jsonMode) printOk("Marcador .context-repo.yml escrito + pusheado");
+      } catch {
+        if (!jsonMode) printDim("Marcador escrito en local; push se har\xE1 en client publish");
+      }
+    }
+  } catch (e) {
+    if (!jsonMode) printWarn(`No se pudo escribir el marcador: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  recordCommandResult(slug, "client new", {
+    success: true,
+    state: "REGISTERED",
+    nextSafe: `dd-cli client discover ${slug}`
+  });
+  const result = {
+    slug,
+    name,
+    provider,
+    base_url: baseUrl,
+    group_or_org: group,
+    context_repo_url: contextRepoUrl,
+    cache_dir: cacheDir,
+    context_repo_created: contextRepoCreated,
+    branch_protection_applied: branchProtectionApplied,
+    state: "REGISTERED"
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("client new", result, `dd-cli client discover ${slug}`));
+  }
+  console.log("");
+  printOk(`Cliente ${bold(slug)} registrado. Estado: REGISTERED.`);
+  console.log("");
+  printInfo("Pr\xF3ximo paso:");
+  printDim(`  dd-cli client discover ${slug}`);
+  printDim(`  # o desde Claude: /devflow-ia:client-onboard ${slug}`);
+  return 0;
+}
+function embedTokenInUrl(url, token, provider) {
+  try {
+    const u = new URL(url);
+    if (provider === "github") {
+      u.username = "x-access-token";
+      u.password = token;
+    } else {
+      u.username = "oauth2";
+      u.password = token;
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+// src/commands/client-publish.ts
+import { execSync as execSync7 } from "child_process";
+import { existsSync as existsSync30 } from "fs";
+function runGit5(cmd, cwd) {
+  return execSync7(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
+async function runClientPublish(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug del cliente. Uso: dd-cli client publish <slug>"
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    const err2 = {
+      code: "CLIENT_NOT_REGISTERED",
+      message: `Cliente "${slug}" no registrado.`,
+      context: { slug },
+      recovery_hints: [
+        `Registr\xE1 el cliente primero: dd-cli client new ${slug}`
+      ],
+      next_safe_command: `dd-cli client new ${slug}`
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const cacheDir = getClientCacheDir(slug);
+  if (!existsSync30(cacheDir)) {
+    const err2 = {
+      code: "CONTEXT_CACHE_MISSING",
+      message: `Cache local no encontrada: ${cacheDir}`,
+      context: { slug, cache_dir: cacheDir },
+      recovery_hints: [`Re-clonar: dd-cli pull-context ${slug}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const steps = [];
+  const findings = validateContextRepo(cacheDir);
+  const errors = findings.filter((f) => f.level === "err");
+  const warnings = findings.filter((f) => f.level === "warn");
+  if (errors.length > 0) {
+    steps.push({ type: "validate", action: "failed", detail: `${errors.length} errores` });
+    const err2 = {
+      code: "CONTEXT_REPO_INVALID",
+      message: `Context repo inv\xE1lido: ${errors.length} errores. No se puede publicar.`,
+      context: { errors: errors.map((e) => ({ rule: e.rule, message: e.message })) },
+      recovery_hints: [
+        `Revis\xE1 los errores: dd-cli context validate ${cacheDir}`,
+        "Edit\xE1 los archivos a mano o re-corr\xE9 /devflow-ia:client-onboard"
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  if (warnings.length > 0 && !opts.ignoreWarnings && !jsonMode) {
+    printWarn(`${warnings.length} warnings detectados:`);
+    for (const w of warnings.slice(0, 5)) printDim(`  ${w.rule}: ${w.message}`);
+    if (warnings.length > 5) printDim(`  ... y ${warnings.length - 5} m\xE1s`);
+    printDim("Tip\xE1 Ctrl-C para abortar, o re-corr\xE9 con --ignore-warnings para continuar.");
+  }
+  steps.push({ type: "validate", action: "ok", detail: `${findings.filter((f) => f.level === "ok").length} OK, ${warnings.length} warnings` });
+  try {
+    await runContextRender(cacheDir, {
+      json: true
+      /* silenciar output */
+    });
+    steps.push({ type: "render", action: "ok" });
+  } catch (e) {
+    steps.push({ type: "render", action: "failed", detail: e instanceof Error ? e.message : String(e) });
+  }
+  let hasChanges = false;
+  try {
+    const status = runGit5("git status --porcelain", cacheDir);
+    hasChanges = status.trim().length > 0;
+  } catch (e) {
+    const err2 = {
+      code: "INTERNAL_ERROR",
+      message: `git status fall\xF3: ${e instanceof Error ? e.message : String(e)}`,
+      context: { cache_dir: cacheDir }
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+    printErr(err2.message);
+    return 1;
+  }
+  if (!hasChanges) {
+    steps.push({ type: "commit", action: "no-changes" });
+    if (!jsonMode) printDim("No hay cambios para publicar.");
+  } else {
+    try {
+      runGit5("git add .", cacheDir);
+      const commitMsg = `feat: publish context for ${slug}
+
+Generado por dd-cli client publish (S3-4).`;
+      runGit5(`git -c commit.gpgsign=false commit -m "${commitMsg}"`, cacheDir);
+      steps.push({ type: "commit", action: "ok" });
+      if (!jsonMode) printOk("Commit creado");
+    } catch (e) {
+      const err2 = {
+        code: "INTERNAL_ERROR",
+        message: `git commit fall\xF3: ${e instanceof Error ? e.message : String(e)}`,
+        context: { cache_dir: cacheDir }
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+      printErr(err2.message);
+      return 1;
+    }
+    if (!opts.noPush) {
+      try {
+        runGit5("git push origin HEAD", cacheDir);
+        steps.push({ type: "push", action: "ok" });
+        if (!jsonMode) printOk(`Push a ${entry.context_url}`);
+      } catch (e) {
+        steps.push({ type: "push", action: "failed", detail: e instanceof Error ? e.message : String(e) });
+        const err2 = {
+          code: "GIT_PUSH_FAILED",
+          message: `git push fall\xF3: ${e instanceof Error ? e.message : String(e)}`,
+          context: { context_url: entry.context_url },
+          recovery_hints: [
+            "Verific\xE1 permisos del token (scope `api` o `repo`)",
+            "Si branch protection bloquea, consider\xE1 --no-branch-protection en client new"
+          ]
+        };
+        if (jsonMode) emitJson(jsonError({ command: "client publish", ...err2 }));
+        printErr(err2.message);
+        return 1;
+      }
+    } else {
+      steps.push({ type: "push", action: "skipped", detail: "--no-push" });
+    }
+  }
+  updateLastSynced(slug);
+  steps.push({ type: "sync", action: "ok" });
+  const existingState = readClientState(slug)?.state;
+  try {
+    recordCommandResult(slug, "client publish", {
+      success: true,
+      state: "READY",
+      nextSafe: "cd <repo-de-codigo> && dd-cli init --client=" + slug
+    });
+  } catch (e) {
+    if (!jsonMode) printDim(`Estado actual: ${existingState ?? "unknown"} (no se pudo avanzar a READY)`);
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("client publish", {
+      slug,
+      cache_dir: cacheDir,
+      context_url: entry.context_url,
+      steps,
+      state: "READY"
+    }, `cd <repo-de-codigo> && dd-cli init --client=${slug}`));
+  }
+  console.log("");
+  printOk(`Cliente ${bold(slug)} \u2192 ${bold("READY")}`);
+  console.log("");
+  printInfo("Para que un dev arranque a programar:");
+  printDim(`  cd <repo-de-codigo>`);
+  printDim(`  dd-cli init --client=${slug}`);
+  printDim(`  dd-cli start-session <HDU-id>`);
+  return 0;
+}
+
+// src/commands/client-show.ts
+import { existsSync as existsSync31 } from "fs";
+function ageInHours(iso) {
+  if (!iso) return Infinity;
+  return (Date.now() - new Date(iso).getTime()) / 36e5;
+}
+function maskCredentials(url) {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) {
+      u.username = "***";
+      u.password = "";
+    }
+    return u.toString();
+  } catch {
+    return url.replace(/\/\/[^@]+@/, "//***@");
+  }
+}
+function formatAge2(iso) {
+  if (!iso) return "nunca";
+  const h = ageInHours(iso);
+  if (h < 1) return "hace minutos";
+  if (h < 24) return `hace ${Math.floor(h)}h`;
+  return `hace ${Math.floor(h / 24)}d`;
+}
+function stateBadgeColor(state) {
+  switch (state) {
+    case "READY":
+    case "ACTIVE":
+      return ok;
+    case "NEEDS_REFRESH":
+      return warn;
+    case "REGISTERED":
+    case "DISCOVERED":
+    case "DRAFT":
+      return warn;
+    default:
+      return err;
+  }
+}
+async function runClientShow(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug. Uso: dd-cli client show <slug>"
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client show", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    const e = {
+      code: "CLIENT_NOT_REGISTERED",
+      message: `Cliente "${slug}" no registrado.`,
+      recovery_hints: [
+        `Ver clientes registrados: dd-cli client list`,
+        `Registrar nuevo: dd-cli client new ${slug}`
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client show", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const cacheDir = getClientCacheDir(slug);
+  const cacheExists = existsSync31(cacheDir);
+  const state = readClientState(slug);
+  const stateName = state?.state ?? "UNKNOWN";
+  const isStale = ageInHours(entry.last_synced) > 24;
+  let stackConfig = null;
+  let catalog = null;
+  let marker = null;
+  if (cacheExists) {
+    try {
+      stackConfig = loadStackConfig(cacheDir);
+    } catch {
+    }
+    try {
+      catalog = loadCatalog(cacheDir);
+    } catch {
+    }
+    try {
+      marker = loadContextRepoMarker(cacheDir);
+    } catch {
+    }
+  }
+  const apps = catalog?.apps ?? [];
+  const appsByType = {};
+  const appsByStatus = {};
+  const authProfiles = /* @__PURE__ */ new Set();
+  const cicdProfiles = /* @__PURE__ */ new Set();
+  for (const a of apps) {
+    appsByType[a.type] = (appsByType[a.type] ?? 0) + 1;
+    appsByStatus[a.status] = (appsByStatus[a.status] ?? 0) + 1;
+    if (a.auth_profile) authProfiles.add(a.auth_profile);
+    if (a.ci_cd_profile && a.ci_cd_profile !== "[por-confirmar]") cicdProfiles.add(a.ci_cd_profile);
+  }
+  const suggestedActions = [];
+  const cmd = suggestedCommandFor(stateName === "UNKNOWN" ? "REGISTERED" : stateName, slug);
+  if (cmd) suggestedActions.push(cmd);
+  if (isStale) suggestedActions.push(`dd-cli pull-context ${slug}    # cache stale (${formatAge2(entry.last_synced)})`);
+  if (!cacheExists) suggestedActions.push(`dd-cli pull-context ${slug}    # cache no existe`);
+  const output = {
+    slug,
+    name: stackConfig?.client.name ?? marker?.client.name ?? entry.name ?? slug,
+    state: stateName,
+    context_url: maskCredentials(entry.context_url),
+    last_synced: entry.last_synced ?? null,
+    stale: isStale,
+    provider: marker?.provider ? { type: marker.provider.type, base_url: marker.provider.base_url, group_or_org: marker.provider.group_or_org } : null,
+    stack: stackConfig ? {
+      backend: stackConfig.stack.backend_framework,
+      frontend: stackConfig.stack.frontend_framework,
+      databases: stackConfig.stack.databases,
+      infra: stackConfig.stack.infra,
+      cicd_platform: stackConfig.stack.cicd_platform
+    } : null,
+    apps_count: apps.length,
+    apps_by_type: appsByType,
+    apps_by_status: appsByStatus,
+    auth_profiles: [...authProfiles],
+    cicd_profiles: [...cicdProfiles],
+    last_command: state?.last_command ?? null,
+    last_command_at: state?.last_command_at ?? null,
+    next_safe_command: state?.next_safe_command ?? cmd ?? null,
+    suggested_actions: suggestedActions
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("client show", output, cmd));
+  }
+  const badgeFn = stateBadgeColor(stateName);
+  console.log("");
+  console.log(`  ${bold(output.name)}    ${badgeFn("\u25CF " + stateName)}`);
+  console.log(`  ${dim(slug)}`);
+  if (stackConfig?.client.industry) console.log(`  ${dim(stackConfig.client.industry)}`);
+  if (stackConfig?.client.primary_contact) console.log(`  ${dim("Contacto: " + stackConfig.client.primary_contact)}`);
+  console.log("");
+  console.log(bold("  CONTEXT REPO"));
+  console.log(`    ${maskCredentials(entry.context_url)}`);
+  console.log(`    ${dim("\xFAltimo sync:    " + formatAge2(entry.last_synced))}${isStale ? "  " + warn("\u26A0 stale") : "  " + ok("\u2713")}`);
+  if (marker) console.log(`    ${dim("schema:         v" + marker.schema_version)}`);
+  console.log("");
+  if (stackConfig) {
+    console.log(bold("  STACK"));
+    console.log(`    ${"backend".padEnd(11)}${stackConfig.stack.backend_framework}`);
+    console.log(`    ${"frontend".padEnd(11)}${stackConfig.stack.frontend_framework}`);
+    if (stackConfig.stack.databases.length > 0) {
+      console.log(`    ${"db".padEnd(11)}${stackConfig.stack.databases.join(", ")}`);
+    }
+    console.log(`    ${"infra".padEnd(11)}${stackConfig.stack.infra}`);
+    console.log(`    ${"ci/cd".padEnd(11)}${stackConfig.stack.cicd_platform}`);
+    console.log("");
+  } else if (cacheExists) {
+    printDim("  STACK no configurado \u2014 falta .devflow-context/stack.yml");
+    console.log("");
+  }
+  if (apps.length > 0) {
+    console.log(bold(`  APPS (${apps.length})`));
+    for (const [type, count] of Object.entries(appsByType)) {
+      console.log(`    ${("\xB7 " + type).padEnd(20)}${count}`);
+    }
+    console.log("");
+  }
+  if (authProfiles.size > 0 || cicdProfiles.size > 0) {
+    console.log(bold("  PROFILES"));
+    if (authProfiles.size > 0) console.log(`    auth        ${[...authProfiles].slice(0, 3).join(", ")}${authProfiles.size > 3 ? ", ..." : ""}`);
+    if (cicdProfiles.size > 0) console.log(`    ci/cd       ${[...cicdProfiles].slice(0, 3).join(", ")}${cicdProfiles.size > 3 ? ", ..." : ""}`);
+    console.log("");
+  }
+  if (state) {
+    console.log(bold("  ACTIVIDAD"));
+    console.log(`    \xFAltimo comando: ${state.last_command} (${formatAge2(state.last_command_at)})`);
+    console.log("");
+  }
+  if (suggestedActions.length > 0) {
+    console.log(bold("  ACCIONES SUGERIDAS"));
+    for (const action of suggestedActions) console.log(`    \u2192 ${action}`);
+    console.log("");
+  }
+  return 0;
+}
+
+// src/commands/client-list.ts
+import { existsSync as existsSync32, readdirSync as readdirSync6 } from "fs";
+function ageInHours2(iso) {
+  if (!iso) return Infinity;
+  return (Date.now() - new Date(iso).getTime()) / 36e5;
+}
+function formatAge3(iso) {
+  if (!iso) return "nunca";
+  const h = ageInHours2(iso);
+  if (h < 1) return "hace minutos";
+  if (h < 24) return `hace ${Math.floor(h)}h`;
+  return `hace ${Math.floor(h / 24)}d`;
+}
+function badgeForState(state) {
+  switch (state) {
+    case "READY":
+    case "ACTIVE":
+      return ok("\u25CF");
+    case "NEEDS_REFRESH":
+      return warn("\u26A0");
+    case "REGISTERED":
+    case "DISCOVERED":
+    case "DRAFT":
+      return warn("\u2699");
+    default:
+      return err("\u2717");
+  }
+}
+function listClients() {
+  const registry = loadRegistry();
+  return Object.values(registry.clients).map((entry) => {
+    const cacheDir = getClientCacheDir(entry.slug);
+    const state = readClientState(entry.slug);
+    let appsCount = 0;
+    if (existsSync32(cacheDir)) {
+      try {
+        const catalog = loadCatalog(cacheDir);
+        appsCount = catalog?.apps.length ?? 0;
+      } catch {
+      }
+    }
+    return {
+      slug: entry.slug,
+      name: entry.name,
+      state: state?.state ?? "UNKNOWN",
+      apps_count: appsCount,
+      last_synced: entry.last_synced ?? null,
+      stale: ageInHours2(entry.last_synced) > 24
+    };
+  });
+}
+async function runClientList(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const clients = listClients();
+  if (jsonMode) {
+    emitJson(jsonSuccess("client list", { clients, total: clients.length }));
+  }
+  console.log("");
+  if (clients.length === 0) {
+    printWarn("Ning\xFAn cliente registrado.");
+    printInfo("Registrar el primero: dd-cli client new <slug>");
+    console.log("");
+    return 0;
+  }
+  for (const c3 of clients) {
+    const badge = badgeForState(c3.state);
+    const sync = c3.stale ? warn(formatAge3(c3.last_synced)) : dim(formatAge3(c3.last_synced));
+    const stateLabel = c3.state.padEnd(14);
+    const appsLabel = `${c3.apps_count} apps`.padEnd(10);
+    console.log(`  ${badge}  ${bold(c3.slug.padEnd(20))}${stateLabel}${appsLabel}${sync}`);
+  }
+  console.log("");
+  printDim(`  Total: ${clients.length} clientes \xB7 ${clients.reduce((s, c3) => s + c3.apps_count, 0)} apps catalogadas`);
+  printDim(`  \u2192 dd-cli client show <slug>      detalle por cliente`);
+  console.log("");
+  return 0;
+}
+async function runHome(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const clients = listClients();
+  const skillsDir = getClaudeSkillsDir();
+  const skillsCount = existsSync32(skillsDir) ? readdirSync6(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  const claudeOk = isClaudeCodeInstalled();
+  let activeSession = null;
+  const projectRoot = findDevFlowProjectRoot();
+  if (projectRoot) {
+    try {
+      const session = loadSession(projectRoot);
+      if (session?.started_at && !session.ended_at) {
+        activeSession = {
+          feature_id: session.feature_id ?? "?",
+          dev_type: session.dev_type ?? "?",
+          step: 0
+          // S6 calculará esto bien
+        };
+      }
+    } catch {
+    }
+  }
+  const byState = {};
+  for (const c3 of clients) byState[c3.state] = (byState[c3.state] ?? 0) + 1;
+  if (jsonMode) {
+    emitJson(jsonSuccess("home", {
+      cli_version: CLI_VERSION,
+      skills_count: skillsCount,
+      claude_code: claudeOk,
+      clients_total: clients.length,
+      clients_by_state: byState,
+      clients,
+      active_session: activeSession
+    }));
+  }
+  console.log("");
+  console.log(bold(`  DevFlow IA   \xB7 ${(/* @__PURE__ */ new Date()).toLocaleDateString("es-CL")}`));
+  console.log("");
+  console.log(bold(`  TUS CLIENTES (${clients.length})`));
+  if (clients.length === 0) {
+    printDim("    (ninguno)");
+    printInfo("    Registrar el primero: dd-cli client new <slug>");
+  } else {
+    for (const c3 of clients) {
+      const badge = badgeForState(c3.state);
+      console.log(`    ${badge} ${bold(c3.slug.padEnd(15))}${c3.state.padEnd(14)}${dim(formatAge3(c3.last_synced))}`);
+    }
+  }
+  console.log("");
+  if (activeSession) {
+    console.log(bold("  ACTIVIDAD"));
+    console.log(`    sesi\xF3n activa: ${activeSession.feature_id} \xB7 ${activeSession.dev_type}`);
+    console.log("");
+  }
+  console.log(bold("  SISTEMA"));
+  console.log(`    CLI v${CLI_VERSION}        ${ok("\u2713")}`);
+  console.log(`    Skills ${skillsCount}          ${skillsCount > 0 ? ok("\u2713") : warn("\u26A0")}`);
+  console.log(`    Claude Code      ${claudeOk ? ok("\u2713") : err("\u2717")}`);
+  console.log("");
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -5614,6 +6588,23 @@ program.command("register-client <slug>").description("Registra un cliente y clo
   }
 });
 var clientCmd = program.command("client").description("Gesti\xF3n de clientes registrados (Sprint 3 agregar\xE1 new/show/list/...)");
+clientCmd.command("new <slug>").description("Onboarding inicial del cliente: registro + crea context repo + clone + state REGISTERED.").option("--name <name>", "Nombre completo del cliente (para modo non-interactive)").option("--provider <type>", "gitlab | github").option("--base-url <url>", "URL base del provider (default seg\xFAn provider)").option("--group <name>", "Group/Org del provider").option("--git-token <token>", "PAT con scope api/repo (sensible \u2014 preferir --git-token-env)").option("--no-branch-protection", "No aplicar branch protection (solo development)").option("--yes", "No pedir confirmaciones (CI / scripts)", false).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientNew(slug, {
+      name: opts.name,
+      provider: opts.provider,
+      baseUrl: opts.baseUrl,
+      group: opts.group,
+      gitToken: opts.gitToken,
+      noBranchProtection: opts.branchProtection === false,
+      yes: opts.yes,
+      json: opts.json
+    }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
 clientCmd.command("migrate <slug>").description("Migra un cliente legacy al schema nuevo (stack.yml + catalog.yml).").option("--apply", "Aplica los cambios. Sin esto, dry-run.", false).option("--no-push", "No pushear al context repo, solo commit local.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
   const noPush = opts.push === false;
   try {
@@ -5635,6 +6626,42 @@ contextCmd.command("validate [path]").description("Valida la forma estructural d
 contextCmd.command("render [path]").description("Regenera las vistas markdown derivadas desde los YAMLs can\xF3nicos.").option("--force", "Reescribe aunque el contenido sea id\xE9ntico.", false).option("--dry-run", "No escribe, solo reporta qu\xE9 cambiar\xEDa.", false).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (repoPath, opts) => {
   try {
     process.exit(await runContextRender(repoPath, { force: opts.force, dryRun: opts.dryRun, json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("show <slug>").description("Dashboard del cliente: stack, apps, profiles, \xFAltimo sync, acciones sugeridas.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientShow(slug, { json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("list").description("Lista todos los clientes registrados con estado, apps y \xFAltimo sync.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
+  try {
+    process.exit(await runClientList({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("home").description("Dashboard del operador: tus clientes, sesi\xF3n activa, sistema.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
+  try {
+    process.exit(await runHome({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("publish <slug>").description("Valida + commit + push del context repo. Avanza state \u2192 READY.").option("--no-push", "Solo commit local, no pushear al remoto.").option("--ignore-warnings", "Publica aunque context validate reporte warnings.", false).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientPublish(slug, {
+      noPush: opts.push === false,
+      ignoreWarnings: opts.ignoreWarnings,
+      json: opts.json
+    }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

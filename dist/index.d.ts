@@ -565,6 +565,22 @@ declare function jsonError(opts: {
  */
 
 declare const CLIENT_STATES: readonly ["REGISTERED", "DISCOVERED", "DRAFT", "READY", "ACTIVE", "NEEDS_REFRESH"];
+type ClientStateName = (typeof CLIENT_STATES)[number];
+/**
+ * Valida si una transición de estado es legal.
+ * Si `from` es `undefined`, solo se acepta llegar a REGISTERED (cliente nuevo).
+ */
+declare function canTransitionTo(from: ClientStateName | undefined, to: ClientStateName): boolean;
+/**
+ * Sugiere el próximo estado natural del flujo de onboarding desde un estado dado.
+ * Útil para `next_safe_command` y la skill /troubleshoot.
+ */
+declare function nextNaturalState(from: ClientStateName | undefined): ClientStateName;
+/**
+ * Mapeo de cada estado al comando CLI sugerido para avanzar.
+ * Permite que cualquier comando emita un `next_safe_command` coherente.
+ */
+declare function suggestedCommandFor(state: ClientStateName, slug: string): string | null;
 declare const PROVIDERS: readonly ["gitlab", "github"];
 declare const ClientStateSchema: z.ZodObject<{
     schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
@@ -632,8 +648,15 @@ declare function writeClientState(state: ClientState): void;
 /**
  * Actualiza el state.json del cliente fusionando un patch sobre el estado actual.
  * Si no existe, requiere `state` y `slug` mínimos en el patch para inicializar.
+ *
+ * Valida las transiciones de estado (S3-7). Si el patch incluye `state` y la
+ * transición no es legal, tira con mensaje claro. Pasá `{ allowAnyTransition: true }`
+ * como segundo arg de la función contenedora para casos legítimos de override
+ * (ej: migración legacy).
  */
-declare function updateClientState(slug: string, patch: Partial<Omit<ClientState, 'slug'>>): ClientState;
+declare function updateClientState(slug: string, patch: Partial<Omit<ClientState, 'slug'>>, opts?: {
+    allowAnyTransition?: boolean;
+}): ClientState;
 /**
  * Conveniencia: registra el resultado de un comando.
  * Llamar al final de cada comando que muta state.
@@ -1395,8 +1418,18 @@ declare class GitLabProvider implements GitProvider {
     listGroupRepos(): Promise<RepoMeta[]>;
     readFile(repoIdOrSlug: string | number, filePath: string, ref?: string): Promise<FileContent>;
     readFirstFound(repoIdOrSlug: string | number, candidates: string[], ref?: string): Promise<FileContent>;
-    createRepo(_opts: CreateRepoOpts): Promise<RepoMeta>;
-    setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void>;
+    /**
+     * Crea un proyecto en GitLab dentro del group del provider.
+     * Mapeo de visibility: 'private' → GitLab "private", 'internal' → "internal",
+     * 'public' → "public".
+     */
+    createRepo(opts: CreateRepoOpts): Promise<RepoMeta>;
+    /**
+     * Configura branch protection en GitLab.
+     * GitLab usa access levels: 40 = Maintainer, 30 = Developer.
+     * Sin protección previa: crea. Con protección previa: reemplaza (idempotente).
+     */
+    setBranchProtection(repoIdOrSlug: string | number, rules: BranchProtectionRules): Promise<void>;
     createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef>;
     configureWebhook(_repo: string | number, _opts: WebhookOpts): Promise<void>;
 }
@@ -1438,8 +1471,16 @@ declare class GitHubProvider implements GitProvider {
     listGroupRepos(): Promise<RepoMeta[]>;
     readFile(repoIdOrSlug: string | number, filePath: string, ref?: string): Promise<FileContent>;
     readFirstFound(repoIdOrSlug: string | number, candidates: string[], ref?: string): Promise<FileContent>;
-    createRepo(_opts: CreateRepoOpts): Promise<RepoMeta>;
-    setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void>;
+    /**
+     * Crea un repo en GitHub dentro del org del provider.
+     * Si el provider apunta a un user (no org), usa el endpoint /user/repos.
+     */
+    createRepo(opts: CreateRepoOpts): Promise<RepoMeta>;
+    /**
+     * Configura branch protection en GitHub via PUT /repos/<owner>/<repo>/branches/<b>/protection.
+     * Idempotente: PUT reemplaza la config existente.
+     */
+    setBranchProtection(repoIdOrSlug: string | number, rules: BranchProtectionRules): Promise<void>;
     createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef>;
     configureWebhook(_repo: string | number, _opts: WebhookOpts): Promise<void>;
 }
@@ -1508,4 +1549,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadContextRepoMarker, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, canTransitionTo, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadContextRepoMarker, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveSession, saveStackConfig, suggestedCommandFor, suggestedNextStep, updateClientState, writeClientState };

@@ -728,6 +728,52 @@ var CLIENT_STATES = [
   "ACTIVE",
   "NEEDS_REFRESH"
 ];
+var STATE_TRANSITIONS = {
+  REGISTERED: ["DISCOVERED", "DRAFT"],
+  // discover → DISCOVERED; review → DRAFT
+  DISCOVERED: ["DRAFT", "READY", "DISCOVERED"],
+  // review → DRAFT; publish skip review → READY; re-discover idempotente
+  DRAFT: ["READY", "DRAFT", "DISCOVERED"],
+  // publish → READY; re-review → DRAFT; rollback a discovery
+  READY: ["ACTIVE", "NEEDS_REFRESH", "DRAFT", "DISCOVERED"],
+  // init → ACTIVE; refresh → DRAFT/DISCOVERED; rollback
+  ACTIVE: ["NEEDS_REFRESH", "ACTIVE", "READY"],
+  NEEDS_REFRESH: ["DRAFT", "DISCOVERED", "READY", "ACTIVE"]
+  // refresh → DRAFT; sync sin cambios → READY
+};
+function canTransitionTo(from, to) {
+  if (from === void 0) return to === "REGISTERED";
+  if (from === to) return STATE_TRANSITIONS[from].includes(to);
+  return STATE_TRANSITIONS[from].includes(to);
+}
+function nextNaturalState(from) {
+  if (from === void 0) return "REGISTERED";
+  const happyPath = {
+    REGISTERED: "DISCOVERED",
+    DISCOVERED: "DRAFT",
+    DRAFT: "READY",
+    READY: "ACTIVE",
+    ACTIVE: "ACTIVE",
+    NEEDS_REFRESH: "DRAFT"
+  };
+  return happyPath[from];
+}
+function suggestedCommandFor(state, slug) {
+  switch (state) {
+    case "REGISTERED":
+      return `dd-cli client discover ${slug}`;
+    case "DISCOVERED":
+      return `dd-cli client publish ${slug}    # o /devflow-ia:client-review`;
+    case "DRAFT":
+      return `dd-cli client publish ${slug}`;
+    case "READY":
+      return `cd <repo-de-codigo> && dd-cli init --client=${slug}`;
+    case "ACTIVE":
+      return null;
+    case "NEEDS_REFRESH":
+      return `dd-cli client refresh ${slug}`;
+  }
+}
 var PROVIDERS = ["gitlab", "github"];
 var ClientStateErrorSchema = z3.object({
   code: z3.enum(ERROR_CODES),
@@ -775,9 +821,17 @@ function writeClientState(state) {
   const validated = ClientStateSchema.parse(state);
   writeFileSync3(statePath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
 }
-function updateClientState(slug, patch) {
+function updateClientState(slug, patch, opts = {}) {
   const existing = readClientState(slug);
   const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (patch.state && !opts.allowAnyTransition) {
+    const fromState = existing?.state;
+    if (!canTransitionTo(fromState, patch.state)) {
+      throw new Error(
+        `Transici\xF3n de estado inv\xE1lida para "${slug}": ${fromState ?? "(none)"} \u2192 ${patch.state}. Transiciones legales desde ${fromState ?? "(none)"}: ${fromState ? STATE_TRANSITIONS[fromState].join(", ") : "REGISTERED"}.`
+      );
+    }
+  }
   const base = existing ?? {
     schema_version: "1.0",
     slug,
@@ -1305,12 +1359,80 @@ var GitLabProvider = class {
     }
     return { path: candidates[0] ?? "", content: "", found: false };
   }
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
-  async createRepo(_opts) {
-    throw new NotImplementedError("gitlab", "createRepo");
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
+  /**
+   * Crea un proyecto en GitLab dentro del group del provider.
+   * Mapeo de visibility: 'private' → GitLab "private", 'internal' → "internal",
+   * 'public' → "public".
+   */
+  async createRepo(opts) {
+    const group = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`);
+    if (!group.id) {
+      throw new ProviderError(
+        `No se pudo resolver el group "${this.group_or_org}" en GitLab.`,
+        { provider: "gitlab" }
+      );
+    }
+    const body = {
+      name: opts.name,
+      path: opts.name,
+      namespace_id: group.id,
+      description: opts.description ?? "",
+      visibility: opts.visibility ?? "private",
+      initialize_with_readme: opts.initialize_with_readme ?? true,
+      default_branch: opts.default_branch ?? "main"
+    };
+    const created = await this.request("projects", {}, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    return {
+      id: created["id"],
+      slug: created["path"] ?? opts.name,
+      name: created["name"] ?? opts.name,
+      description: created["description"] ?? "",
+      url: created["http_url_to_repo"] ?? "",
+      ssh_url: created["ssh_url_to_repo"] ?? "",
+      default_branch: created["default_branch"] ?? body.default_branch,
+      last_push: created["last_activity_at"] ?? (/* @__PURE__ */ new Date()).toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: created["topics"] ?? [],
+      archived: false,
+      ci_config_path: null
+    };
   }
-  async setBranchProtection(_repo, _rules) {
-    throw new NotImplementedError("gitlab", "setBranchProtection");
+  /**
+   * Configura branch protection en GitLab.
+   * GitLab usa access levels: 40 = Maintainer, 30 = Developer.
+   * Sin protección previa: crea. Con protección previa: reemplaza (idempotente).
+   */
+  async setBranchProtection(repoIdOrSlug, rules) {
+    try {
+      await this.request(
+        `projects/${repoIdOrSlug}/protected_branches/${encodeURIComponent(rules.branch)}`,
+        {},
+        { method: "DELETE" }
+      );
+    } catch {
+    }
+    const allowForce = rules.allow_force_push ?? false;
+    const requirePR = rules.require_pull_request ?? true;
+    const pushLevel = requirePR ? 40 : 30;
+    const mergeLevel = 40;
+    await this.request(
+      `projects/${repoIdOrSlug}/protected_branches`,
+      {},
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: rules.branch,
+          push_access_level: pushLevel,
+          merge_access_level: mergeLevel,
+          allow_force_push: allowForce
+        })
+      }
+    );
   }
   async createPullRequest(_repo, _opts) {
     throw new NotImplementedError("gitlab", "createPullRequest (createMergeRequest)");
@@ -1464,12 +1586,67 @@ var GitHubProvider = class {
     }
     return { path: candidates[0] ?? "", content: "", found: false };
   }
-  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
-  async createRepo(_opts) {
-    throw new NotImplementedError("github", "createRepo");
+  // ── Write side (Sprint 3 — implementado) ─────────────────────────
+  /**
+   * Crea un repo en GitHub dentro del org del provider.
+   * Si el provider apunta a un user (no org), usa el endpoint /user/repos.
+   */
+  async createRepo(opts) {
+    let endpoint = `orgs/${this.group_or_org}/repos`;
+    try {
+      await this.request(`orgs/${this.group_or_org}`);
+    } catch {
+      endpoint = "user/repos";
+    }
+    const body = {
+      name: opts.name,
+      description: opts.description ?? "",
+      private: (opts.visibility ?? "private") !== "public",
+      auto_init: opts.initialize_with_readme ?? true,
+      ...opts.default_branch ? { default_branch: opts.default_branch } : {}
+    };
+    const { json } = await this.request(endpoint, {}, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    const created = json;
+    return {
+      id: created["id"],
+      slug: created["name"] ?? opts.name,
+      name: created["full_name"] ?? opts.name,
+      description: created["description"] ?? "",
+      url: created["clone_url"] ?? "",
+      ssh_url: created["ssh_url"] ?? "",
+      default_branch: created["default_branch"] ?? opts.default_branch ?? "main",
+      last_push: created["pushed_at"] ?? (/* @__PURE__ */ new Date()).toISOString(),
+      language: null,
+      size_kb: 0,
+      topics: created["topics"] ?? [],
+      archived: false,
+      ci_config_path: null
+    };
   }
-  async setBranchProtection(_repo, _rules) {
-    throw new NotImplementedError("github", "setBranchProtection");
+  /**
+   * Configura branch protection en GitHub via PUT /repos/<owner>/<repo>/branches/<b>/protection.
+   * Idempotente: PUT reemplaza la config existente.
+   */
+  async setBranchProtection(repoIdOrSlug, rules) {
+    const requirePR = rules.require_pull_request ?? true;
+    const requiredApprovals = rules.required_approvals ?? 1;
+    const allowForce = rules.allow_force_push ?? false;
+    const body = {
+      required_status_checks: null,
+      enforce_admins: false,
+      required_pull_request_reviews: requirePR ? { required_approving_review_count: requiredApprovals } : null,
+      restrictions: null,
+      allow_force_pushes: allowForce,
+      allow_deletions: false
+    };
+    await this.request(
+      `repos/${this.group_or_org}/${repoIdOrSlug}/branches/${encodeURIComponent(rules.branch)}/protection`,
+      {},
+      { method: "PUT", body: JSON.stringify(body) }
+    );
   }
   async createPullRequest(_repo, _opts) {
     throw new NotImplementedError("github", "createPullRequest");
@@ -1546,6 +1723,7 @@ export {
   StackDevflowSchema,
   StackInfraSchema,
   StackTemplatesSchema,
+  canTransitionTo,
   createInitialSession,
   createProvider,
   detectFlowState,
@@ -1589,6 +1767,7 @@ export {
   loadSession,
   loadStackConfig,
   looksLikeLegacyMasterConfig,
+  nextNaturalState,
   parseMarkdownCatalog,
   partition,
   readClientState,
@@ -1601,6 +1780,7 @@ export {
   saveContextRepoMarker,
   saveSession,
   saveStackConfig,
+  suggestedCommandFor,
   suggestedNextStep,
   updateClientState,
   writeClientState
