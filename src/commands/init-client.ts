@@ -12,7 +12,7 @@
  *   5. Genera .devflow/config.yml
  *   6. Ejecuta el init normal (skills, hooks, CLAUDE.md)
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { select, input, confirm } from '@inquirer/prompts';
@@ -30,6 +30,7 @@ import {
   type AppType,
   type AppOrigin,
 } from '../types/project-config.js';
+import { loadCatalog, type CatalogApp } from '../types/catalog.js';
 import { DEV_TYPES, type DevType } from '../types/dev-type.js';
 import { getProjectRoot } from '../utils/paths.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
@@ -37,6 +38,15 @@ import { runInit } from './init.js';
 
 const isTTY = process.stdout.isTTY;
 
+/**
+ * Forma reducida que el flujo interactivo necesita.
+ * Si el ci_cd_profile vino como null (skill viejo emitía boolean), marcamos
+ * con [por-confirmar] para que el dev lo complete después via dd-cli gaps.
+ *
+ * S1-2: el parseo del catálogo vive ahora en `loadCatalog`, que prefiere
+ * `catalog.yml` canónico y cae a `app-catalog.md` (backward-compat) si
+ * solo existe el viejo.
+ */
 interface AppCatalogEntry {
   slug: string;
   type: string;
@@ -46,58 +56,15 @@ interface AppCatalogEntry {
   preferred_dev_types: string[];
 }
 
-/**
- * B-1 hot-fix — parser tolerante a backticks alrededor del slug.
- *
- * Schema esperado de cada fila (8 columnas según skill init-context.md):
- *   | slug | tipo | app_origin | auth-profile | repo | ci_cd | estado | preferred_dev_types |
- *
- * Limitación conocida: la columna 5 del skill es `ci_cd` boolean (Sí/No), pero
- * el ProjectConfig necesita el nombre del profile (ej: `gitlab-laravel-k8s`).
- * Hasta S2-5 (catalog.yml canónico), si la columna parece boolean usamos un
- * placeholder marcado para que el usuario lo complete después.
- */
-function stripBackticks(s: string): string {
-  return s.replace(/^`+/, '').replace(/`+$/, '').trim();
-}
-
-function looksLikeBoolean(s: string): boolean {
-  return /^(sí|si|no|yes|true|false|✓|✗|—|-)?$/i.test(s.trim());
-}
-
-function parseAppCatalog(catalogPath: string): AppCatalogEntry[] {
-  if (!existsSync(catalogPath)) return [];
-  const content = readFileSync(catalogPath, 'utf-8');
-  const entries: AppCatalogEntry[] = [];
-
-  // Una fila de datos empieza con `|` + espacio + char alfanumérico o backtick.
-  // Excluye el header (`| slug |`) y la línea separadora (`|---|`).
-  const lines = content.split('\n');
-  for (const line of lines) {
-    if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
-    if (/^\|\s*-+/.test(line)) continue; // separator
-
-    const cols = line.split('|').map(c => stripBackticks(c.trim())).filter(Boolean);
-    if (cols.length < 4) continue;
-
-    // Salta el header detectando palabras claves
-    const firstCol = cols[0]?.toLowerCase() ?? '';
-    if (firstCol === 'slug' || firstCol === 'app') continue;
-
-    // ci_cd_profile (col 5) — si el skill emite boolean, marcamos para completar
-    const rawCiCd = cols[5] ?? '';
-    const ciCdProfile = looksLikeBoolean(rawCiCd) ? '[por-confirmar]' : rawCiCd;
-
-    entries.push({
-      slug: cols[0] ?? '',
-      type: cols[1] ?? '',
-      app_origin: cols[2] ?? 'legacy-app',
-      auth_profile: cols[3] ?? '',
-      ci_cd_profile: ciCdProfile,
-      preferred_dev_types: (cols[7] ?? '').split(',').map(s => stripBackticks(s)).filter(Boolean),
-    });
-  }
-  return entries;
+function toEntry(app: CatalogApp): AppCatalogEntry {
+  return {
+    slug: app.slug,
+    type: app.type,
+    auth_profile: app.auth_profile ?? '',
+    ci_cd_profile: app.ci_cd_profile ?? '[por-confirmar]',
+    app_origin: app.app_origin,
+    preferred_dev_types: app.preferred_dev_types,
+  };
 }
 
 function syncCache(slug: string, contextUrl: string): boolean {
@@ -141,8 +108,8 @@ export async function runInitClient(clientSlug: string): Promise<number> {
   }
 
   const cacheDir = getClientCacheDir(clientSlug);
-  const catalogPath = path.join(cacheDir, '.devflow-context', 'app-catalog.md');
-  const existingApps = parseAppCatalog(catalogPath);
+  const catalog = loadCatalog(cacheDir);
+  const existingApps: AppCatalogEntry[] = catalog?.apps.map(toEntry) ?? [];
 
   // 3. ¿Qué app es este repo?
   let selectedApp: AppCatalogEntry | null = null;

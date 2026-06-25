@@ -11,6 +11,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
+import { loadCatalog, hasCatalog } from '../types/catalog.js';
 import {
   getClientCacheDir,
   registerClient,
@@ -178,21 +179,16 @@ export async function runRegisterClient(
     printWarn(`Para guardar credenciales git se necesitan tanto --git-token como --git-group`);
   }
 
-  // Mostrar resumen del catálogo si existe
-  const catalogPath = path.join(cacheDir, '.devflow-context', 'app-catalog.md');
-  if (existsSync(catalogPath)) {
-    const content = readFileSync(catalogPath, 'utf-8');
-    // B-1 hot-fix — contar filas de datos (tolerante a backticks).
-    let appCount = 0;
-    for (const line of content.split('\n')) {
-      if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
-      if (/^\|\s*-+/.test(line)) continue;
-      const firstCol = line.split('|')[1]?.trim().replace(/^`+|`+$/g, '').toLowerCase() ?? '';
-      if (firstCol === 'slug' || firstCol === 'app') continue;
-      appCount++;
-    }
-    if (appCount > 0) {
-      printOk(`App catalog: ${appCount} apps encontradas`);
+  // Mostrar resumen del catálogo si existe (S1-2: loadCatalog soporta yml + md)
+  if (hasCatalog(cacheDir)) {
+    try {
+      const catalog = loadCatalog(cacheDir);
+      const appCount = catalog?.apps.length ?? 0;
+      if (appCount > 0) {
+        printOk(`App catalog: ${appCount} apps encontradas`);
+      }
+    } catch (e) {
+      printWarn(`Catalog inválido: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
     }
   }
 

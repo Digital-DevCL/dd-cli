@@ -958,6 +958,187 @@ declare function saveStackConfig(contextRepoRoot: string, config: StackConfig): 
 declare function looksLikeLegacyMasterConfig(parsed: unknown): boolean;
 
 /**
+ * Schema de `.devflow-context/catalog.yml` — catálogo de apps del cliente (S1-2).
+ *
+ * Resuelve A-4 del rediseño: "la fuente de verdad del catálogo es markdown,
+ * frágil por diseño". Migramos a YAML canónico; el markdown queda como vista
+ * derivada que se regenera con `dd-cli context render` (Sprint 2 S2-5).
+ *
+ * Apéndice B.2 del doc rediseño.
+ *
+ * Backward-compat: si el catálogo es markdown viejo (app-catalog.md),
+ * `loadCatalog` lo parsea con el hot-fix de B-1 y produce el mismo shape.
+ */
+
+declare const APP_STATUSES: readonly ["prod", "qa", "dev", "deprecated", "inactive", "empty", "unknown"];
+type AppStatus = (typeof APP_STATUSES)[number];
+declare const APP_ROLES: readonly ["provider", "consumer", "portal", "standalone", "data-layer", "integration", "unknown"];
+type AppRole = (typeof APP_ROLES)[number];
+declare const CatalogAppSchema: z.ZodObject<{
+    slug: z.ZodString;
+    name: z.ZodString;
+    type: z.ZodEnum<["microservice", "bff", "api-rest", "frontend-app", "frontend-mfe", "worker", "library"]>;
+    role: z.ZodDefault<z.ZodEnum<["provider", "consumer", "portal", "standalone", "data-layer", "integration", "unknown"]>>;
+    auth_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    ci_cd_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    repo: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    branch: z.ZodDefault<z.ZodString>;
+    status: z.ZodDefault<z.ZodEnum<["prod", "qa", "dev", "deprecated", "inactive", "empty", "unknown"]>>;
+    app_origin: z.ZodDefault<z.ZodEnum<["greenfield-app", "legacy-app", "external-app"]>>;
+    template_origin: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    preferred_dev_types: z.ZodDefault<z.ZodArray<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>, "many">>;
+    tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    notes: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+    status: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty";
+    name: string;
+    slug: string;
+    auth_profile: string | null;
+    ci_cd_profile: string | null;
+    app_origin: "greenfield-app" | "legacy-app" | "external-app";
+    preferred_dev_types: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[];
+    role: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration";
+    repo: string | null;
+    branch: string;
+    template_origin: string | null;
+    tags: string[];
+    notes: string | null;
+}, {
+    type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+    name: string;
+    slug: string;
+    status?: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty" | undefined;
+    auth_profile?: string | null | undefined;
+    ci_cd_profile?: string | null | undefined;
+    app_origin?: "greenfield-app" | "legacy-app" | "external-app" | undefined;
+    preferred_dev_types?: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[] | undefined;
+    role?: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration" | undefined;
+    repo?: string | null | undefined;
+    branch?: string | undefined;
+    template_origin?: string | null | undefined;
+    tags?: string[] | undefined;
+    notes?: string | null | undefined;
+}>;
+type CatalogApp = z.infer<typeof CatalogAppSchema>;
+declare const CatalogSchema: z.ZodObject<{
+    schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
+    apps: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        slug: z.ZodString;
+        name: z.ZodString;
+        type: z.ZodEnum<["microservice", "bff", "api-rest", "frontend-app", "frontend-mfe", "worker", "library"]>;
+        role: z.ZodDefault<z.ZodEnum<["provider", "consumer", "portal", "standalone", "data-layer", "integration", "unknown"]>>;
+        auth_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        ci_cd_profile: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        repo: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        branch: z.ZodDefault<z.ZodString>;
+        status: z.ZodDefault<z.ZodEnum<["prod", "qa", "dev", "deprecated", "inactive", "empty", "unknown"]>>;
+        app_origin: z.ZodDefault<z.ZodEnum<["greenfield-app", "legacy-app", "external-app"]>>;
+        template_origin: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        preferred_dev_types: z.ZodDefault<z.ZodArray<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>, "many">>;
+        tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+        notes: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, "strip", z.ZodTypeAny, {
+        type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+        status: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty";
+        name: string;
+        slug: string;
+        auth_profile: string | null;
+        ci_cd_profile: string | null;
+        app_origin: "greenfield-app" | "legacy-app" | "external-app";
+        preferred_dev_types: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[];
+        role: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration";
+        repo: string | null;
+        branch: string;
+        template_origin: string | null;
+        tags: string[];
+        notes: string | null;
+    }, {
+        type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+        name: string;
+        slug: string;
+        status?: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty" | undefined;
+        auth_profile?: string | null | undefined;
+        ci_cd_profile?: string | null | undefined;
+        app_origin?: "greenfield-app" | "legacy-app" | "external-app" | undefined;
+        preferred_dev_types?: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[] | undefined;
+        role?: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration" | undefined;
+        repo?: string | null | undefined;
+        branch?: string | undefined;
+        template_origin?: string | null | undefined;
+        tags?: string[] | undefined;
+        notes?: string | null | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    schema_version: "1.0";
+    apps: {
+        type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+        status: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty";
+        name: string;
+        slug: string;
+        auth_profile: string | null;
+        ci_cd_profile: string | null;
+        app_origin: "greenfield-app" | "legacy-app" | "external-app";
+        preferred_dev_types: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[];
+        role: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration";
+        repo: string | null;
+        branch: string;
+        template_origin: string | null;
+        tags: string[];
+        notes: string | null;
+    }[];
+}, {
+    schema_version?: "1.0" | undefined;
+    apps?: {
+        type: "microservice" | "bff" | "api-rest" | "frontend-app" | "frontend-mfe" | "worker" | "library";
+        name: string;
+        slug: string;
+        status?: "unknown" | "prod" | "qa" | "dev" | "deprecated" | "inactive" | "empty" | undefined;
+        auth_profile?: string | null | undefined;
+        ci_cd_profile?: string | null | undefined;
+        app_origin?: "greenfield-app" | "legacy-app" | "external-app" | undefined;
+        preferred_dev_types?: ("greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa")[] | undefined;
+        role?: "unknown" | "provider" | "consumer" | "portal" | "standalone" | "data-layer" | "integration" | undefined;
+        repo?: string | null | undefined;
+        branch?: string | undefined;
+        template_origin?: string | null | undefined;
+        tags?: string[] | undefined;
+        notes?: string | null | undefined;
+    }[] | undefined;
+}>;
+type Catalog = z.infer<typeof CatalogSchema>;
+declare function getCatalogYamlPath(contextRepoRoot: string): string;
+declare function getCatalogMarkdownPath(contextRepoRoot: string): string;
+declare function hasCatalog(contextRepoRoot: string): boolean;
+/**
+ * Lee el catálogo del context repo.
+ * Prefiere catalog.yml; si no existe, parsea app-catalog.md (backward-compat).
+ * Retorna null si no hay ninguno.
+ */
+declare function loadCatalog(contextRepoRoot: string): Catalog | null;
+declare function saveCatalog(contextRepoRoot: string, catalog: Catalog): void;
+/**
+ * Parsea el markdown legacy `app-catalog.md` al shape de Catalog.
+ *
+ * Schema del skill /init-context (8 columnas):
+ *   | slug | tipo | app_origin | auth-profile | repo | ci_cd | estado | preferred_dev_types |
+ *
+ * El hot-fix de B-1 ya tolera backticks. Acá generalizamos al parser
+ * canónico y los campos faltantes (name, role, etc.) usan defaults.
+ *
+ * NOTA: la columna 5 (ci_cd) del skill viejo era boolean (Sí/No), no el
+ * nombre del profile. Si parece boolean, marcamos `ci_cd_profile: null`
+ * para que el cliente lo complete via `dd-cli client gaps --resolve`.
+ */
+declare function parseMarkdownCatalog(content: string): CatalogApp[];
+/**
+ * Regenera el markdown derivado desde el YAML canónico.
+ * Lo invocará `dd-cli context render` en Sprint 2. Acá ya queda la lógica
+ * porque depende del schema y conviene tenerla en el mismo módulo.
+ */
+declare function renderCatalogMarkdown(catalog: Catalog): string;
+
+/**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
  * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
@@ -1210,4 +1391,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };

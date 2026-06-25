@@ -25,6 +25,7 @@ import {
 import { loadRegistry } from '../types/registry.js';
 import { loadCredentials } from '../types/credentials.js';
 import { loadProjectConfig } from '../types/project-config.js';
+import { loadCatalog, hasCatalog } from '../types/catalog.js';
 import { loadSession } from '../utils/session-io.js';
 import { CLI_VERSION } from '../index.js';
 import { isJsonMode, jsonSuccess, emitJson } from '../utils/json-output.js';
@@ -131,22 +132,18 @@ function checkClient(slug: string): ClientHealth {
   } else {
     details['contexto'] = entry.local_cache;
 
-    // App catalog (indica que init-context fue ejecutado)
-    const catalogPath = path.join(entry.local_cache, '.devflow-context', 'app-catalog.md');
-    if (existsSync(catalogPath)) {
-      const content = readFileSync(catalogPath, 'utf-8');
-      // B-1 hot-fix — contar filas de datos (tolerante a backticks, excluye header y separator).
-      let appCount = 0;
-      for (const line of content.split('\n')) {
-        if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
-        if (/^\|\s*-+/.test(line)) continue;
-        const firstCol = line.split('|')[1]?.trim().replace(/^`+|`+$/g, '').toLowerCase() ?? '';
-        if (firstCol === 'slug' || firstCol === 'app') continue;
-        appCount++;
+    // App catalog (S1-2: loadCatalog soporta yml canónico + md legacy)
+    if (hasCatalog(entry.local_cache)) {
+      try {
+        const catalog = loadCatalog(entry.local_cache);
+        const appCount = catalog?.apps.length ?? 0;
+        details['app catalog'] = `${appCount} apps catalogadas`;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        issues.push(`catalog inválido — ${msg.split('\n')[0]}`);
       }
-      details['app catalog'] = `${appCount} apps catalogadas`;
     } else {
-      issues.push('app-catalog.md no encontrado — ejecuta /devflow-ia:init-context');
+      issues.push('catalog no encontrado — ejecuta /devflow-ia:init-context');
     }
   }
 

@@ -902,6 +902,175 @@ function looksLikeLegacyMasterConfig(parsed) {
   return "stack" in obj || "project" in obj || "naming" in obj || "templates" in obj;
 }
 
+// src/types/catalog.ts
+import { z as z6 } from "zod";
+import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync7, writeFileSync as writeFileSync6 } from "fs";
+import * as path8 from "path";
+import * as yaml4 from "js-yaml";
+
+// src/types/project-config.ts
+import { z as z5 } from "zod";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, existsSync as existsSync8, mkdirSync as mkdirSync5 } from "fs";
+import * as path7 from "path";
+import * as yaml3 from "js-yaml";
+var APP_TYPES = [
+  "microservice",
+  "bff",
+  "api-rest",
+  "frontend-app",
+  "frontend-mfe",
+  "worker",
+  "library"
+];
+var APP_ORIGINS2 = ["greenfield-app", "legacy-app", "external-app"];
+var ProjectConfigSchema = z5.object({
+  client: z5.object({
+    slug: z5.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+    name: z5.string().min(1),
+    context_url: z5.string().url("Debe ser una URL de GitHub/GitLab")
+  }),
+  app: z5.object({
+    slug: z5.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+    type: z5.enum(APP_TYPES),
+    auth_profile: z5.string().min(1),
+    ci_cd_profile: z5.string().min(1),
+    app_origin: z5.enum(APP_ORIGINS2).default("legacy-app"),
+    preferred_dev_types: z5.array(z5.enum(DEV_TYPES)).default([])
+  }),
+  devflow: z5.object({
+    mode: z5.enum(["local", "platform"]).default("local"),
+    platform_url: z5.string().url().nullable().default(null)
+  }).default({ mode: "local", platform_url: null })
+});
+
+// src/types/catalog.ts
+var APP_STATUSES = ["prod", "qa", "dev", "deprecated", "inactive", "empty", "unknown"];
+var APP_ROLES = ["provider", "consumer", "portal", "standalone", "data-layer", "integration", "unknown"];
+var CatalogAppSchema = z6.object({
+  slug: z6.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+  name: z6.string().min(1),
+  type: z6.enum(APP_TYPES),
+  role: z6.enum(APP_ROLES).default("standalone"),
+  auth_profile: z6.string().nullable().default(null),
+  ci_cd_profile: z6.string().nullable().default(null),
+  repo: z6.string().nullable().default(null),
+  branch: z6.string().default("main"),
+  status: z6.enum(APP_STATUSES).default("unknown"),
+  app_origin: z6.enum(APP_ORIGINS2).default("legacy-app"),
+  template_origin: z6.string().nullable().default(null),
+  preferred_dev_types: z6.array(z6.enum(DEV_TYPES)).default([]),
+  tags: z6.array(z6.string()).default([]),
+  notes: z6.string().nullable().default(null)
+});
+var CatalogSchema = z6.object({
+  schema_version: z6.literal("1.0").default("1.0"),
+  apps: z6.array(CatalogAppSchema).default([])
+});
+var CATALOG_DIR = ".devflow-context";
+var CATALOG_YAML = "catalog.yml";
+var CATALOG_MARKDOWN_LEGACY = "app-catalog.md";
+function getCatalogYamlPath(contextRepoRoot) {
+  return path8.join(contextRepoRoot, CATALOG_DIR, CATALOG_YAML);
+}
+function getCatalogMarkdownPath(contextRepoRoot) {
+  return path8.join(contextRepoRoot, CATALOG_DIR, CATALOG_MARKDOWN_LEGACY);
+}
+function hasCatalog(contextRepoRoot) {
+  return existsSync9(getCatalogYamlPath(contextRepoRoot)) || existsSync9(getCatalogMarkdownPath(contextRepoRoot));
+}
+function loadCatalog(contextRepoRoot) {
+  const yamlPath = getCatalogYamlPath(contextRepoRoot);
+  if (existsSync9(yamlPath)) {
+    const raw = readFileSync7(yamlPath, "utf-8");
+    const parsed = yaml4.load(raw);
+    const result = CatalogSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(`catalog.yml inv\xE1lido en ${yamlPath}:
+${result.error.message}`);
+    }
+    return result.data;
+  }
+  const mdPath = getCatalogMarkdownPath(contextRepoRoot);
+  if (existsSync9(mdPath)) {
+    const apps = parseMarkdownCatalog(readFileSync7(mdPath, "utf-8"));
+    return CatalogSchema.parse({ apps });
+  }
+  return null;
+}
+function saveCatalog(contextRepoRoot, catalog) {
+  const dir = path8.join(contextRepoRoot, CATALOG_DIR);
+  if (!existsSync9(dir)) mkdirSync6(dir, { recursive: true });
+  const validated = CatalogSchema.parse(catalog);
+  const yamlStr = yaml4.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync6(getCatalogYamlPath(contextRepoRoot), yamlStr, "utf-8");
+}
+function parseMarkdownCatalog(content) {
+  const stripBackticks = (s) => s.replace(/^`+/, "").replace(/`+$/, "").trim();
+  const looksLikeBoolean = (s) => /^(sí|si|no|yes|true|false|✓|✗|—|-)?$/i.test(s.trim());
+  const apps = [];
+  for (const line of content.split("\n")) {
+    if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
+    if (/^\|\s*-+/.test(line)) continue;
+    const cols = line.split("|").map((c) => stripBackticks(c.trim())).filter(Boolean);
+    if (cols.length < 4) continue;
+    const firstCol = (cols[0] ?? "").toLowerCase();
+    if (firstCol === "slug" || firstCol === "app") continue;
+    const slug = cols[0] ?? "";
+    if (!/^[a-z0-9-]+$/.test(slug)) continue;
+    const rawType = cols[1] ?? "";
+    const type = APP_TYPES.includes(rawType) ? rawType : "bff";
+    const rawOrigin = cols[2] ?? "legacy-app";
+    const app_origin = APP_ORIGINS2.includes(rawOrigin) ? rawOrigin : "legacy-app";
+    const rawCiCd = cols[5] ?? "";
+    const ci_cd_profile = looksLikeBoolean(rawCiCd) ? null : rawCiCd;
+    const rawStatus = (cols[6] ?? "").toLowerCase();
+    const status = APP_STATUSES.includes(rawStatus) ? rawStatus : "unknown";
+    const preferred_dev_types = (cols[7] ?? "").split(",").map((s) => stripBackticks(s)).filter((s) => DEV_TYPES.includes(s));
+    apps.push(CatalogAppSchema.parse({
+      slug,
+      name: slug,
+      // sin display name en md viejo
+      type,
+      role: "standalone",
+      auth_profile: cols[3] || null,
+      ci_cd_profile,
+      repo: cols[4] || null,
+      branch: "main",
+      status,
+      app_origin,
+      preferred_dev_types,
+      tags: [],
+      notes: null
+    }));
+  }
+  return apps;
+}
+function renderCatalogMarkdown(catalog) {
+  const apps = catalog.apps;
+  const lines = [];
+  lines.push("# App catalog");
+  lines.push("");
+  lines.push("Generado por dd-cli context render \u2014 no editar a mano (edit\xE1 catalog.yml).");
+  lines.push("");
+  lines.push("| slug | tipo | app_origin | auth-profile | repo | ci_cd_profile | estado | preferred_dev_types |");
+  lines.push("|---|---|---|---|---|---|---|---|");
+  for (const app of apps) {
+    const cells = [
+      "`" + app.slug + "`",
+      app.type,
+      app.app_origin,
+      app.auth_profile ?? "\u2014",
+      app.repo ?? "\u2014",
+      app.ci_cd_profile ?? "\u2014",
+      app.status,
+      app.preferred_dev_types.join(", ") || "\u2014"
+    ];
+    lines.push("| " + cells.join(" | ") + " |");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 // src/providers/types.ts
 var ProviderError = class extends Error {
   constructor(message, cause) {
@@ -1288,8 +1457,12 @@ function defaultBaseUrlFor(type, raw) {
 var CLI_VERSION = "0.5.1";
 export {
   APP_ORIGINS,
+  APP_ROLES,
+  APP_STATUSES,
   CLIENT_STATES,
   CLI_VERSION,
+  CatalogAppSchema,
+  CatalogSchema,
   ClientStateSchema,
   DEV_TYPES,
   DefaultsSchema,
@@ -1320,6 +1493,8 @@ export {
   findDevFlowProjectRoot,
   formatDoctorOutput,
   formatJson,
+  getCatalogMarkdownPath,
+  getCatalogYamlPath,
   getClaudeCommandsDir,
   getClaudeGlobalSettingsPath,
   getClaudeHome,
@@ -1332,6 +1507,7 @@ export {
   getProjectRoot,
   getSessionPath,
   getStackConfigPath,
+  hasCatalog,
   hasSession,
   hasStackConfig,
   inferProviderType,
@@ -1343,15 +1519,19 @@ export {
   isJsonMode,
   jsonError,
   jsonSuccess,
+  loadCatalog,
   loadSession,
   loadStackConfig,
   looksLikeLegacyMasterConfig,
+  parseMarkdownCatalog,
   partition,
   readClientState,
   recordCommandResult,
+  renderCatalogMarkdown,
   requiresBaseline,
   requiresRepoContext,
   rulesForDevType,
+  saveCatalog,
   saveSession,
   saveStackConfig,
   suggestedNextStep,
