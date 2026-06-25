@@ -24,6 +24,7 @@ import {
 } from '../utils/paths.js';
 import { loadRegistry } from '../types/registry.js';
 import { loadCredentials } from '../types/credentials.js';
+import { loadProjectConfig } from '../types/project-config.js';
 import { loadSession } from '../utils/session-io.js';
 import { CLI_VERSION } from '../index.js';
 import {
@@ -133,7 +134,15 @@ function checkClient(slug: string): ClientHealth {
     const catalogPath = path.join(entry.local_cache, '.devflow-context', 'app-catalog.md');
     if (existsSync(catalogPath)) {
       const content = readFileSync(catalogPath, 'utf-8');
-      const appCount = (content.match(/^\| [a-z]/gm) ?? []).length;
+      // B-1 hot-fix — contar filas de datos (tolerante a backticks, excluye header y separator).
+      let appCount = 0;
+      for (const line of content.split('\n')) {
+        if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
+        if (/^\|\s*-+/.test(line)) continue;
+        const firstCol = line.split('|')[1]?.trim().replace(/^`+|`+$/g, '').toLowerCase() ?? '';
+        if (firstCol === 'slug' || firstCol === 'app') continue;
+        appCount++;
+      }
       details['app catalog'] = `${appCount} apps catalogadas`;
     } else {
       issues.push('app-catalog.md no encontrado — ejecuta /devflow-ia:init-context');
@@ -173,15 +182,13 @@ function checkProject(): ProjectHealth {
   const projectRoot = findDevFlowProjectRoot();
   if (!projectRoot) return { isDevFlow: false };
 
-  // Leer config para cliente conectado
-  const configPath = path.join(projectRoot, '.devflow', 'config.yml');
+  // Leer config para cliente conectado — usar loadProjectConfig (B-4 fix)
   let connectedClient: string | undefined;
-  if (existsSync(configPath)) {
-    try {
-      const content = readFileSync(configPath, 'utf-8');
-      const match = content.match(/^client:\s*(.+)$/m);
-      connectedClient = match?.[1]?.trim();
-    } catch { /* */ }
+  try {
+    const cfg = loadProjectConfig(projectRoot);
+    connectedClient = cfg?.client.slug;
+  } catch {
+    // Schema inválido — dejar undefined; problema se ve en otra capa
   }
 
   // Sesión

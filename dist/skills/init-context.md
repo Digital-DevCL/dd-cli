@@ -282,7 +282,7 @@ Guía de uso del repo de contexto y exclusiones estándar.
 
 ---
 
-## PASO 6 — Commit inicial
+## PASO 6 — Commit inicial + sync de la cache local
 
 ```bash
 git add .
@@ -295,10 +295,24 @@ Auth profiles: <N> (<lista>)
 CI/CD profiles: <N>
 Gaps identificados: <N>
 
-Generado por /init-context v0.2.0"
+Generado por /devflow-ia:init-context"
 
 git push origin main
 ```
+
+**B-6 fix — cerrar el loop:** después del push, sincronizar la cache local del CLI para que `dd-cli health` y futuras invocaciones reflejen lo que se acaba de publicar.
+
+```bash
+dd-cli pull-context <slug>
+```
+
+Validar que la cache quedó al día:
+
+```bash
+dd-cli health --client=<slug>
+```
+
+Debe reportar `app catalog: <N> apps catalogadas` con el número que acabamos de generar. Si reporta 0 o un número viejo, hay un problema de sync — revisar permisos del token y volver a correr `pull-context`.
 
 ---
 
@@ -315,6 +329,9 @@ Archivos creados:
   ✓ .devflow-context/client-assessment.md  (<N> gaps)
   ✓ .devflow-context/auth-profiles/   (<N> perfiles)
   ✓ .devflow-context/cicd-profiles/   (<N> perfiles)
+
+✓ Cache local sincronizada (dd-cli pull-context <slug>)
+✓ Health check verde (dd-cli health --client=<slug>)
 
 Gaps que vale revisar con el Jefe TI:
   <lista del client-assessment.md>

@@ -46,25 +46,56 @@ interface AppCatalogEntry {
   preferred_dev_types: string[];
 }
 
+/**
+ * B-1 hot-fix — parser tolerante a backticks alrededor del slug.
+ *
+ * Schema esperado de cada fila (8 columnas según skill init-context.md):
+ *   | slug | tipo | app_origin | auth-profile | repo | ci_cd | estado | preferred_dev_types |
+ *
+ * Limitación conocida: la columna 5 del skill es `ci_cd` boolean (Sí/No), pero
+ * el ProjectConfig necesita el nombre del profile (ej: `gitlab-laravel-k8s`).
+ * Hasta S2-5 (catalog.yml canónico), si la columna parece boolean usamos un
+ * placeholder marcado para que el usuario lo complete después.
+ */
+function stripBackticks(s: string): string {
+  return s.replace(/^`+/, '').replace(/`+$/, '').trim();
+}
+
+function looksLikeBoolean(s: string): boolean {
+  return /^(sí|si|no|yes|true|false|✓|✗|—|-)?$/i.test(s.trim());
+}
+
 function parseAppCatalog(catalogPath: string): AppCatalogEntry[] {
   if (!existsSync(catalogPath)) return [];
   const content = readFileSync(catalogPath, 'utf-8');
   const entries: AppCatalogEntry[] = [];
 
-  // Parsear tabla markdown — cada fila de datos (empieza con | y una letra minúscula)
-  const rows = content.match(/^\| [a-z][^|]*/gm) ?? [];
-  for (const row of rows) {
-    const cols = row.split('|').map(c => c.trim()).filter(Boolean);
-    if (cols.length >= 6) {
-      entries.push({
-        slug: cols[0] ?? '',
-        type: cols[1] ?? '',
-        auth_profile: cols[3] ?? '',
-        ci_cd_profile: cols[5] ?? '',
-        app_origin: cols[2] ?? 'legacy-app',
-        preferred_dev_types: (cols[7] ?? '').split(',').map(s => s.trim()).filter(Boolean),
-      });
-    }
+  // Una fila de datos empieza con `|` + espacio + char alfanumérico o backtick.
+  // Excluye el header (`| slug |`) y la línea separadora (`|---|`).
+  const lines = content.split('\n');
+  for (const line of lines) {
+    if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
+    if (/^\|\s*-+/.test(line)) continue; // separator
+
+    const cols = line.split('|').map(c => stripBackticks(c.trim())).filter(Boolean);
+    if (cols.length < 4) continue;
+
+    // Salta el header detectando palabras claves
+    const firstCol = cols[0]?.toLowerCase() ?? '';
+    if (firstCol === 'slug' || firstCol === 'app') continue;
+
+    // ci_cd_profile (col 5) — si el skill emite boolean, marcamos para completar
+    const rawCiCd = cols[5] ?? '';
+    const ciCdProfile = looksLikeBoolean(rawCiCd) ? '[por-confirmar]' : rawCiCd;
+
+    entries.push({
+      slug: cols[0] ?? '',
+      type: cols[1] ?? '',
+      app_origin: cols[2] ?? 'legacy-app',
+      auth_profile: cols[3] ?? '',
+      ci_cd_profile: ciCdProfile,
+      preferred_dev_types: (cols[7] ?? '').split(',').map(s => stripBackticks(s)).filter(Boolean),
+    });
   }
   return entries;
 }

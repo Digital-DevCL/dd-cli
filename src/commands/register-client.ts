@@ -8,8 +8,9 @@
  * una vez por máquina.
  */
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import * as path from 'node:path';
+import * as yaml from 'js-yaml';
 import {
   getClientCacheDir,
   registerClient,
@@ -52,6 +53,54 @@ function deriveNameFromUrl(url: string): string {
   return base.replace(/-devflow-context$/, '');
 }
 
+/**
+ * B-5 fix — leer el nombre real del cliente desde el context repo recién clonado.
+ * Orden de prioridad:
+ *   1. .devflow-context/stack.yml → client.name (forward-compat con S1-1)
+ *   2. .devflow-context/.context-repo.yml → client.name (forward-compat con S2-3)
+ *   3. CLAUDE.md primer heading H1
+ *   4. README.md primer heading H1
+ *   5. Fallback: deriveNameFromUrl(contextUrl)
+ */
+function readClientName(cacheDir: string, contextUrl: string): string {
+  // 1. stack.yml (forward-compat)
+  const stackYmlPath = path.join(cacheDir, '.devflow-context', 'stack.yml');
+  if (existsSync(stackYmlPath)) {
+    try {
+      const parsed = yaml.load(readFileSync(stackYmlPath, 'utf-8')) as Record<string, unknown> | null;
+      const client = parsed?.client as Record<string, unknown> | undefined;
+      const name = client?.name;
+      if (typeof name === 'string' && name.trim()) return name.trim();
+    } catch { /* skip */ }
+  }
+
+  // 2. .context-repo.yml (forward-compat con marcador de S2-3)
+  const contextRepoYmlPath = path.join(cacheDir, '.devflow-context', '.context-repo.yml');
+  if (existsSync(contextRepoYmlPath)) {
+    try {
+      const parsed = yaml.load(readFileSync(contextRepoYmlPath, 'utf-8')) as Record<string, unknown> | null;
+      const client = parsed?.client as Record<string, unknown> | undefined;
+      const name = client?.name;
+      if (typeof name === 'string' && name.trim()) return name.trim();
+    } catch { /* skip */ }
+  }
+
+  // 3 + 4. Markdown H1 de CLAUDE.md o README.md
+  for (const filename of ['CLAUDE.md', 'README.md']) {
+    const mdPath = path.join(cacheDir, filename);
+    if (existsSync(mdPath)) {
+      try {
+        const content = readFileSync(mdPath, 'utf-8');
+        const h1 = content.match(/^#\s+(.+?)\s*$/m);
+        if (h1 && h1[1]?.trim()) return h1[1].trim();
+      } catch { /* skip */ }
+    }
+  }
+
+  // 5. Fallback
+  return deriveNameFromUrl(contextUrl);
+}
+
 export async function runRegisterClient(
   slug: string,
   opts: RegisterClientOptions
@@ -79,6 +128,7 @@ export async function runRegisterClient(
 
   if (existsSync(cacheDir) && opts.force) {
     printDim(`  Sobreescribiendo cache existente en ${cacheDir}`);
+    rmSync(cacheDir, { recursive: true, force: true });
   }
 
   if (!existsSync(cacheDir)) {
@@ -96,8 +146,9 @@ export async function runRegisterClient(
     }
   }
 
-  // Leer nombre del cliente del repo (del README o del CLAUDE.md si tiene)
-  const clientName = opts.name ?? deriveNameFromUrl(opts.contextUrl);
+  // B-5 fix — leer nombre real del context repo recién clonado.
+  // Si opts.name fue provisto explícitamente, gana sobre lo leído del repo.
+  const clientName = opts.name ?? readClientName(cacheDir, opts.contextUrl);
 
   // Registrar en registry.yml
   registerClient({
@@ -130,9 +181,16 @@ export async function runRegisterClient(
   // Mostrar resumen del catálogo si existe
   const catalogPath = path.join(cacheDir, '.devflow-context', 'app-catalog.md');
   if (existsSync(catalogPath)) {
-    const content = require('node:fs').readFileSync(catalogPath, 'utf-8');
-    const appLines = content.match(/^\| [a-z]/gm) ?? [];
-    const appCount = appLines.length;
+    const content = readFileSync(catalogPath, 'utf-8');
+    // B-1 hot-fix — contar filas de datos (tolerante a backticks).
+    let appCount = 0;
+    for (const line of content.split('\n')) {
+      if (!/^\|\s*[`a-z0-9]/i.test(line)) continue;
+      if (/^\|\s*-+/.test(line)) continue;
+      const firstCol = line.split('|')[1]?.trim().replace(/^`+|`+$/g, '').toLowerCase() ?? '';
+      if (firstCol === 'slug' || firstCol === 'app') continue;
+      appCount++;
+    }
     if (appCount > 0) {
       printOk(`App catalog: ${appCount} apps encontradas`);
     }
