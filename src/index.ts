@@ -11,4 +11,9 @@ export * from './enforcement/evaluator.js';
 export * from './utils/paths.js';
 export * from './utils/session-io.js';
 
+// Contrato JSON (S1-9, D-7/D-8 Parte 3) — consumido por skills, CI, tests.
+export * from './utils/error-codes.js';
+export * from './utils/json-output.js';
+export * from './utils/client-state.js';
+
 export const CLI_VERSION = '0.5.1';

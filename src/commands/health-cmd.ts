@@ -27,6 +27,7 @@ import { loadCredentials } from '../types/credentials.js';
 import { loadProjectConfig } from '../types/project-config.js';
 import { loadSession } from '../utils/session-io.js';
 import { CLI_VERSION } from '../index.js';
+import { isJsonMode, jsonSuccess, emitJson } from '../utils/json-output.js';
 import {
   bold, ok, warn, err, dim, info, devTypeBadge,
   printOk, printWarn, printErr, printInfo, printDim,
@@ -215,10 +216,50 @@ export async function runHealth(opts: HealthOptions = {}): Promise<number> {
     ? [opts.client]
     : Object.keys(registry.clients);
 
-  if (opts.json) {
-    // TODO: JSON output para scripts
-    console.log(JSON.stringify({ version: CLI_VERSION, clients: clientSlugs }, null, 2));
-    return 0;
+  // ── JSON mode (S1-9 contrato) ──────────────────────────────────────
+  // Bajo D-7/D-8, este es el output que las skills consumen.
+  // Estructura estable; agregar campos al final, no renombrar.
+  if (isJsonMode(opts)) {
+    const slCheck = checkStatusline();
+    const skillsCheck = checkSkills();
+    const claudeInstalled = isClaudeCodeInstalled();
+    const proj = checkProject();
+    const clients = clientSlugs.map(slug => {
+      const h = checkClient(slug);
+      const entry = registry.clients[slug];
+      return {
+        slug: h.slug,
+        status: h.status,
+        registered: !!entry,
+        context_cache: entry?.local_cache ?? null,
+        last_synced: entry?.last_synced ?? null,
+        details: h.details,
+        issues: h.issues,
+      };
+    });
+    const anyClientErr = clients.some(c => c.status === 'err');
+    const overall =
+      slCheck.status !== 'ok' || skillsCheck.status !== 'ok' || anyClientErr || clientSlugs.length === 0
+        ? (anyClientErr ? 'err' : 'warn')
+        : 'ok';
+
+    emitJson(jsonSuccess('health', {
+      cli_version: CLI_VERSION,
+      machine: {
+        cli: { status: 'ok' as const, version: CLI_VERSION },
+        statusline: slCheck,
+        claude_code: { installed: claudeInstalled, home: getClaudeHome() },
+        skills: skillsCheck,
+      },
+      clients,
+      project: {
+        is_devflow: proj.isDevFlow,
+        project_root: proj.projectRoot ?? null,
+        connected_client: proj.connectedClient ?? null,
+        session_status: proj.sessionStatus ?? null,
+      },
+      overall,
+    }));
   }
 
   console.log('');

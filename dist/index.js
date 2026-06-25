@@ -585,28 +585,265 @@ function hasSession(projectRoot) {
   return existsSync4(getSessionPath(projectRoot));
 }
 
+// src/utils/error-codes.ts
+var ERROR_CODES = [
+  // ── Genéricos ───────────────────────────────────────────────────────
+  "INTERNAL_ERROR",
+  "NOT_IMPLEMENTED",
+  "INVALID_INPUT",
+  "PERMISSION_DENIED",
+  "NETWORK_ERROR",
+  // ── Proyecto / config local ─────────────────────────────────────────
+  "PROJECT_NOT_INITIALIZED",
+  "CONFIG_INVALID",
+  "CONFIG_MISSING",
+  // ── Cliente / registry / cache ──────────────────────────────────────
+  "CLIENT_NOT_REGISTERED",
+  "CLIENT_ALREADY_REGISTERED",
+  "CONTEXT_CACHE_MISSING",
+  "CONTEXT_CACHE_STALE",
+  "CONTEXT_REPO_EMPTY",
+  "REGISTRY_INVALID",
+  // ── Provider / git ──────────────────────────────────────────────────
+  "TOKEN_MISSING",
+  "TOKEN_INVALID",
+  "TOKEN_INSUFFICIENT_SCOPE",
+  "PROVIDER_NOT_SUPPORTED",
+  "GIT_CLONE_FAILED",
+  "GIT_PULL_FAILED",
+  "GIT_PUSH_FAILED",
+  // ── Schema / catalog / context ──────────────────────────────────────
+  "CATALOG_PARSE_ERROR",
+  "CATALOG_NOT_FOUND",
+  "CONTEXT_REPO_INVALID",
+  "STACK_CONFIG_MISSING",
+  // ── Sesión / flujo ──────────────────────────────────────────────────
+  "SESSION_NOT_STARTED",
+  "SESSION_ALREADY_ACTIVE",
+  "SESSION_INVALID",
+  "PRECONDITION_NOT_MET",
+  // ── HDU (futuro Sprint 5) ───────────────────────────────────────────
+  "HDU_NOT_FOUND",
+  "HDU_ID_COLLISION",
+  "HDU_ALREADY_CLAIMED"
+];
+function exitCodeFor(code) {
+  switch (code) {
+    case "CONFIG_INVALID":
+    case "REGISTRY_INVALID":
+    case "CONTEXT_REPO_INVALID":
+    case "CATALOG_PARSE_ERROR":
+    case "INVALID_INPUT":
+    case "SESSION_INVALID":
+      return 3;
+    case "PROJECT_NOT_INITIALIZED":
+    case "CONFIG_MISSING":
+    case "CLIENT_NOT_REGISTERED":
+    case "CONTEXT_CACHE_MISSING":
+    case "STACK_CONFIG_MISSING":
+    case "CATALOG_NOT_FOUND":
+    case "TOKEN_MISSING":
+    case "TOKEN_INSUFFICIENT_SCOPE":
+    case "SESSION_NOT_STARTED":
+    case "PRECONDITION_NOT_MET":
+    case "HDU_NOT_FOUND":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+// src/utils/json-output.ts
+function isJsonMode(opts) {
+  if (opts?.json) return true;
+  if (process.env.DEVFLOW_CLAUDE_MODE === "1") return true;
+  return false;
+}
+function emitJson(output) {
+  process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  const code = output.status === "success" ? 0 : exitCodeFor(output.code);
+  process.exit(code);
+}
+function formatJson(output) {
+  return JSON.stringify(output, null, 2);
+}
+function jsonSuccess(command, data, nextSafeCommand) {
+  return {
+    status: "success",
+    command,
+    cli_version: CLI_VERSION,
+    data,
+    ...nextSafeCommand !== void 0 ? { next_safe_command: nextSafeCommand } : {}
+  };
+}
+function jsonError(opts) {
+  return {
+    status: "error",
+    command: opts.command,
+    cli_version: CLI_VERSION,
+    code: opts.code,
+    message: opts.message,
+    ...opts.context ? { context: opts.context } : {},
+    ...opts.recovery_hints ? { recovery_hints: opts.recovery_hints } : {},
+    ...opts.next_safe_command !== void 0 ? { next_safe_command: opts.next_safe_command } : {}
+  };
+}
+
+// src/utils/client-state.ts
+import { z as z3 } from "zod";
+import { existsSync as existsSync6, mkdirSync as mkdirSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "fs";
+import * as path5 from "path";
+
+// src/types/registry.ts
+import { z as z2 } from "zod";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync5, mkdirSync as mkdirSync2 } from "fs";
+import * as path4 from "path";
+import * as os2 from "os";
+import * as yaml from "js-yaml";
+var ClientRegistryEntrySchema = z2.object({
+  slug: z2.string(),
+  name: z2.string().default(""),
+  context_url: z2.string().url(),
+  local_cache: z2.string(),
+  // path absoluto a ~/.devflow/clients/<slug>/
+  last_synced: z2.string().nullable().default(null),
+  registered_at: z2.string()
+});
+var RegistrySchema = z2.object({
+  clients: z2.record(z2.string(), ClientRegistryEntrySchema).default({})
+});
+function getDevflowGlobalDir() {
+  return path4.join(os2.homedir(), ".devflow");
+}
+function getClientCacheDir(slug) {
+  return path4.join(getDevflowGlobalDir(), "clients", slug);
+}
+
+// src/utils/client-state.ts
+var CLIENT_STATES = [
+  "REGISTERED",
+  "DISCOVERED",
+  "DRAFT",
+  "READY",
+  "ACTIVE",
+  "NEEDS_REFRESH"
+];
+var PROVIDERS = ["gitlab", "github"];
+var ClientStateErrorSchema = z3.object({
+  code: z3.enum(ERROR_CODES),
+  message: z3.string(),
+  context: z3.record(z3.string(), z3.unknown()).optional(),
+  recovery_hints: z3.array(z3.string()).optional()
+}).passthrough();
+var ClientStateSchema = z3.object({
+  schema_version: z3.literal("1.0").default("1.0"),
+  slug: z3.string(),
+  state: z3.enum(CLIENT_STATES),
+  provider: z3.enum(PROVIDERS).optional(),
+  last_command: z3.string(),
+  last_command_at: z3.string(),
+  last_error: ClientStateErrorSchema.nullable().default(null),
+  draft_path: z3.string().optional(),
+  open_gaps: z3.number().int().nonnegative().optional(),
+  next_safe_command: z3.string().nullable().optional()
+});
+function getClientStatePath(slug) {
+  return path5.join(getDevflowGlobalDir(), "clients", `${slug}.state.json`);
+}
+function getStateCandidates(slug) {
+  return [
+    getClientStatePath(slug),
+    path5.join(getClientCacheDir(slug), "..", `${slug}.state.json`)
+  ];
+}
+function readClientState(slug) {
+  for (const candidate of getStateCandidates(slug)) {
+    if (!existsSync6(candidate)) continue;
+    try {
+      const raw = readFileSync4(candidate, "utf-8");
+      const parsed = JSON.parse(raw);
+      const result = ClientStateSchema.safeParse(parsed);
+      if (result.success) return result.data;
+    } catch {
+    }
+  }
+  return null;
+}
+function writeClientState(state) {
+  const statePath = getClientStatePath(state.slug);
+  mkdirSync3(path5.dirname(statePath), { recursive: true });
+  const validated = ClientStateSchema.parse(state);
+  writeFileSync3(statePath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
+}
+function updateClientState(slug, patch) {
+  const existing = readClientState(slug);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = existing ?? {
+    schema_version: "1.0",
+    slug,
+    state: "REGISTERED",
+    last_command: "unknown",
+    last_command_at: now,
+    last_error: null
+  };
+  const merged = {
+    ...base,
+    ...patch,
+    slug,
+    // slug es inmutable
+    last_command_at: patch.last_command_at ?? now
+  };
+  const parsed = ClientStateSchema.parse(merged);
+  writeClientState(parsed);
+  return parsed;
+}
+function recordCommandResult(slug, command, result) {
+  if (result.success) {
+    updateClientState(slug, {
+      last_command: command,
+      last_error: null,
+      ...result.state ? { state: result.state } : {},
+      ...result.nextSafe !== void 0 ? { next_safe_command: result.nextSafe } : {}
+    });
+  } else {
+    updateClientState(slug, {
+      last_command: command,
+      last_error: result.error,
+      ...result.nextSafe !== void 0 ? { next_safe_command: result.nextSafe } : {}
+    });
+  }
+}
+
 // src/index.ts
 var CLI_VERSION = "0.5.1";
 export {
   APP_ORIGINS,
+  CLIENT_STATES,
   CLI_VERSION,
+  ClientStateSchema,
   DEV_TYPES,
   DevTypeSchema,
   DevTypeSourceSchema,
+  ERROR_CODES,
   FlowStateSchema,
+  PROVIDERS,
   RULES,
   SessionIOError,
   SessionStateSchema,
   createInitialSession,
   detectFlowState,
+  emitJson,
   enforcementRuleIdsForDevType,
   evaluateRules,
+  exitCodeFor,
   findDevFlowProjectRoot,
   formatDoctorOutput,
+  formatJson,
   getClaudeCommandsDir,
   getClaudeGlobalSettingsPath,
   getClaudeHome,
   getClaudeSkillsDir,
+  getClientStatePath,
   getDevflowDir,
   getHeartbeatLogPath,
   getProjectClaudeDir,
@@ -619,12 +856,19 @@ export {
   isClaudeCodeInstalled,
   isDevFlowProject,
   isDevType,
+  isJsonMode,
+  jsonError,
+  jsonSuccess,
   loadSession,
   partition,
+  readClientState,
+  recordCommandResult,
   requiresBaseline,
   requiresRepoContext,
   rulesForDevType,
   saveSession,
-  suggestedNextStep
+  suggestedNextStep,
+  updateClientState,
+  writeClientState
 };
 //# sourceMappingURL=index.js.map

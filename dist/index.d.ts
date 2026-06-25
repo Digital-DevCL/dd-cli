@@ -467,6 +467,188 @@ declare function saveSession(projectRoot: string, session: SessionState): void;
 declare function hasSession(projectRoot: string): boolean;
 
 /**
+ * Códigos de error estables del CLI.
+ *
+ * Contrato bajo D-7 (sección 4.8) y D-8 (Parte 3) del rediseño:
+ * los códigos son estables entre versiones y las skills + Claude los
+ * mapean a recovery hints conversacionales. Agregar códigos nuevos
+ * al final de la lista correspondiente; no renombrar ni reusar.
+ *
+ * Convención: SCREAMING_SNAKE_CASE. Prefijo por dominio cuando aplica.
+ */
+declare const ERROR_CODES: readonly ["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"];
+type ErrorCode = (typeof ERROR_CODES)[number];
+/**
+ * Mapeo de exit code por dominio (referencia R-4 del doc).
+ *   0 = éxito
+ *   1 = error operacional (red, permisos, archivo no encontrado)
+ *   2 = error de configuración / precondición no cumplida
+ *   3 = error de schema / validación
+ */
+declare function exitCodeFor(code: ErrorCode): 1 | 2 | 3;
+
+/**
+ * Contrato JSON estructurado del CLI (S1-9, D-7 Parte 3, D-8 Parte 3).
+ *
+ * Toda salida `--json` o con env `DEVFLOW_CLAUDE_MODE=1` cumple este shape.
+ * Lo consumen:
+ *   - Las skills (vía Claude leyendo el JSON entre invocaciones).
+ *   - CI / scripts / power users.
+ *   - Tests E2E.
+ *
+ * Diseño:
+ *   - `cli_version` permite a la skill saber con qué versión está hablando.
+ *   - `code` (en errores) es estable; ver `error-codes.ts`.
+ *   - `recovery_hints` están en español y siempre incluyen un comando concreto.
+ *   - `next_safe_command` sugiere el siguiente paso seguro (puede ser null si terminó).
+ */
+
+interface JsonSuccess<T = unknown> {
+    status: 'success';
+    command: string;
+    cli_version: string;
+    data: T;
+    next_safe_command?: string | null;
+}
+interface JsonError {
+    status: 'error';
+    command: string;
+    cli_version: string;
+    code: ErrorCode;
+    message: string;
+    context?: Record<string, unknown>;
+    recovery_hints?: string[];
+    next_safe_command?: string | null;
+}
+type JsonOutput<T = unknown> = JsonSuccess<T> | JsonError;
+interface JsonModeOpts {
+    json?: boolean;
+}
+/**
+ * Detecta si el comando debe emitir JSON estructurado.
+ * Triggers: flag `--json` (explícito) o env `DEVFLOW_CLAUDE_MODE=1` (Claude lo setea).
+ */
+declare function isJsonMode(opts?: JsonModeOpts): boolean;
+/**
+ * Emite output JSON y termina con exit code apropiado.
+ * Para éxito: exit 0. Para error: exit code según `exitCodeFor(code)`.
+ *
+ * No retorna — termina el proceso. Si se necesita lógica post-output,
+ * usar `formatJson` directamente.
+ */
+declare function emitJson<T>(output: JsonOutput<T>): never;
+/**
+ * Variante que sólo formatea, sin terminar el proceso.
+ * Útil para tests o cuando hay limpieza pendiente.
+ */
+declare function formatJson<T>(output: JsonOutput<T>): string;
+declare function jsonSuccess<T>(command: string, data: T, nextSafeCommand?: string | null): JsonSuccess<T>;
+declare function jsonError(opts: {
+    command: string;
+    code: ErrorCode;
+    message: string;
+    context?: Record<string, unknown>;
+    recovery_hints?: string[];
+    next_safe_command?: string | null;
+}): JsonError;
+
+/**
+ * State.json por cliente — fuente que Claude lee entre invocaciones
+ * (D-7 Parte 3 / D-8 Parte 3 del rediseño).
+ *
+ * Vive en `~/.devflow/clients/<slug>/state.json` y se actualiza después
+ * de cada comando que muta state del cliente. La skill `/devflow-ia:client-onboard`
+ * y `/devflow-ia:troubleshoot` lo consumen para saber dónde estamos.
+ *
+ * Las máquinas de estado seguibles son las de D-3 / sección 4.0:
+ *   REGISTERED → DISCOVERED → DRAFT → READY → ACTIVE → NEEDS_REFRESH
+ */
+
+declare const CLIENT_STATES: readonly ["REGISTERED", "DISCOVERED", "DRAFT", "READY", "ACTIVE", "NEEDS_REFRESH"];
+declare const PROVIDERS: readonly ["gitlab", "github"];
+declare const ClientStateSchema: z.ZodObject<{
+    schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
+    slug: z.ZodString;
+    state: z.ZodEnum<["REGISTERED", "DISCOVERED", "DRAFT", "READY", "ACTIVE", "NEEDS_REFRESH"]>;
+    provider: z.ZodOptional<z.ZodEnum<["gitlab", "github"]>>;
+    last_command: z.ZodString;
+    last_command_at: z.ZodString;
+    last_error: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+        code: z.ZodEnum<["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"]>;
+        message: z.ZodString;
+        context: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        recovery_hints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+        code: z.ZodEnum<["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"]>;
+        message: z.ZodString;
+        context: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        recovery_hints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+        code: z.ZodEnum<["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"]>;
+        message: z.ZodString;
+        context: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        recovery_hints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    }, z.ZodTypeAny, "passthrough">>>>;
+    draft_path: z.ZodOptional<z.ZodString>;
+    open_gaps: z.ZodOptional<z.ZodNumber>;
+    next_safe_command: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    schema_version: "1.0";
+    slug: string;
+    state: "REGISTERED" | "DISCOVERED" | "DRAFT" | "READY" | "ACTIVE" | "NEEDS_REFRESH";
+    last_command: string;
+    last_command_at: string;
+    last_error: z.objectOutputType<{
+        code: z.ZodEnum<["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"]>;
+        message: z.ZodString;
+        context: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        recovery_hints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    }, z.ZodTypeAny, "passthrough"> | null;
+    next_safe_command?: string | null | undefined;
+    provider?: "gitlab" | "github" | undefined;
+    draft_path?: string | undefined;
+    open_gaps?: number | undefined;
+}, {
+    slug: string;
+    state: "REGISTERED" | "DISCOVERED" | "DRAFT" | "READY" | "ACTIVE" | "NEEDS_REFRESH";
+    last_command: string;
+    last_command_at: string;
+    schema_version?: "1.0" | undefined;
+    next_safe_command?: string | null | undefined;
+    provider?: "gitlab" | "github" | undefined;
+    last_error?: z.objectInputType<{
+        code: z.ZodEnum<["INTERNAL_ERROR", "NOT_IMPLEMENTED", "INVALID_INPUT", "PERMISSION_DENIED", "NETWORK_ERROR", "PROJECT_NOT_INITIALIZED", "CONFIG_INVALID", "CONFIG_MISSING", "CLIENT_NOT_REGISTERED", "CLIENT_ALREADY_REGISTERED", "CONTEXT_CACHE_MISSING", "CONTEXT_CACHE_STALE", "CONTEXT_REPO_EMPTY", "REGISTRY_INVALID", "TOKEN_MISSING", "TOKEN_INVALID", "TOKEN_INSUFFICIENT_SCOPE", "PROVIDER_NOT_SUPPORTED", "GIT_CLONE_FAILED", "GIT_PULL_FAILED", "GIT_PUSH_FAILED", "CATALOG_PARSE_ERROR", "CATALOG_NOT_FOUND", "CONTEXT_REPO_INVALID", "STACK_CONFIG_MISSING", "SESSION_NOT_STARTED", "SESSION_ALREADY_ACTIVE", "SESSION_INVALID", "PRECONDITION_NOT_MET", "HDU_NOT_FOUND", "HDU_ID_COLLISION", "HDU_ALREADY_CLAIMED"]>;
+        message: z.ZodString;
+        context: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+        recovery_hints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    }, z.ZodTypeAny, "passthrough"> | null | undefined;
+    draft_path?: string | undefined;
+    open_gaps?: number | undefined;
+}>;
+type ClientState = z.infer<typeof ClientStateSchema>;
+declare function getClientStatePath(slug: string): string;
+declare function readClientState(slug: string): ClientState | null;
+declare function writeClientState(state: ClientState): void;
+/**
+ * Actualiza el state.json del cliente fusionando un patch sobre el estado actual.
+ * Si no existe, requiere `state` y `slug` mínimos en el patch para inicializar.
+ */
+declare function updateClientState(slug: string, patch: Partial<Omit<ClientState, 'slug'>>): ClientState;
+/**
+ * Conveniencia: registra el resultado de un comando.
+ * Llamar al final de cada comando que muta state.
+ */
+declare function recordCommandResult(slug: string, command: string, result: {
+    success: true;
+    state?: ClientState['state'];
+    nextSafe?: string | null;
+} | {
+    success: false;
+    error: NonNullable<ClientState['last_error']>;
+    nextSafe?: string | null;
+}): void;
+
+/**
  * @devflow-ia/cli — exports públicos.
  * Permite que otras herramientas (skills, tests, plataforma) consuman
  * la lógica core sin invocar el binario.
@@ -474,4 +656,4 @@ declare function hasSession(projectRoot: string): boolean;
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, findDevFlowProjectRoot, formatDoctorOutput, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };
+export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, PROVIDERS, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep, updateClientState, writeClientState };
