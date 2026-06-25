@@ -814,6 +814,94 @@ function recordCommandResult(slug, command, result) {
   }
 }
 
+// src/types/stack-config.ts
+import { z as z4 } from "zod";
+import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "fs";
+import * as path6 from "path";
+import * as yaml2 from "js-yaml";
+var StackInfraSchema = z4.object({
+  backend_framework: z4.string().min(1),
+  frontend_framework: z4.string().min(1),
+  databases: z4.array(z4.string()).min(1),
+  infra: z4.string().min(1),
+  // ej: "Kubernetes"
+  k8s_namespaces: z4.record(z4.string(), z4.string()).optional(),
+  cicd_platform: z4.string().min(1),
+  // ej: "GitLab CI", "GitHub Actions"
+  identity_provider: z4.string().nullable().default(null),
+  container_registry: z4.string().nullable().default(null),
+  base_domain: z4.string().nullable().default(null)
+});
+var NamingSchema = z4.object({
+  feature_id_pattern: z4.string().default("HDU-{n}"),
+  branch_pattern: z4.string().default("feature/{feature_id}-{slug}"),
+  spec_filename: z4.string().default("SPEC-{slug}.md"),
+  epic_filename: z4.string().default("EPIC-{slug}.md")
+});
+var DefaultsSchema = z4.object({
+  acceptance_format: z4.enum(["gherkin", "checklist", "narrative"]).default("gherkin"),
+  story_format: z4.enum(["como-quiero-para", "user-story", "free"]).default("como-quiero-para"),
+  sprint_duration_weeks: z4.number().int().min(1).max(8).default(2),
+  main_branch: z4.string().default("main"),
+  qa_branch: z4.string().default("develop")
+});
+var StackTemplatesSchema = z4.object({
+  fullstack: z4.string().nullable().default(null),
+  // ej: "iprsa-group/laravel-fullstack-template"
+  api: z4.string().nullable().default(null)
+}).passthrough();
+var StackDevflowSchema = z4.object({
+  mode: z4.enum(["local", "platform"]).default("local"),
+  url: z4.string().url().nullable().default(null)
+});
+var StackConfigSchema = z4.object({
+  schema_version: z4.literal("1.0").default("1.0"),
+  client: z4.object({
+    slug: z4.string().min(1).regex(/^[a-z0-9-]+$/, "Debe ser kebab-case"),
+    name: z4.string().min(1),
+    industry: z4.string().nullable().default(null),
+    team_size: z4.number().int().nonnegative().nullable().default(null),
+    primary_contact: z4.string().nullable().default(null)
+  }),
+  stack: StackInfraSchema,
+  naming: NamingSchema.default({}),
+  defaults: DefaultsSchema.default({}),
+  templates: StackTemplatesSchema.default({}),
+  devflow: StackDevflowSchema.default({})
+});
+var STACK_DIR = ".devflow-context";
+var STACK_FILENAME = "stack.yml";
+function getStackConfigPath(contextRepoRoot) {
+  return path6.join(contextRepoRoot, STACK_DIR, STACK_FILENAME);
+}
+function hasStackConfig(contextRepoRoot) {
+  return existsSync7(getStackConfigPath(contextRepoRoot));
+}
+function loadStackConfig(contextRepoRoot) {
+  const p = getStackConfigPath(contextRepoRoot);
+  if (!existsSync7(p)) return null;
+  const raw = readFileSync5(p, "utf-8");
+  const parsed = yaml2.load(raw);
+  const result = StackConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`stack.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveStackConfig(contextRepoRoot, config) {
+  const stackDir = path6.join(contextRepoRoot, STACK_DIR);
+  if (!existsSync7(stackDir)) mkdirSync4(stackDir, { recursive: true });
+  const validated = StackConfigSchema.parse(config);
+  const yamlStr = yaml2.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync4(getStackConfigPath(contextRepoRoot), yamlStr, "utf-8");
+}
+function looksLikeLegacyMasterConfig(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  const obj = parsed;
+  return "stack" in obj || "project" in obj || "naming" in obj || "templates" in obj;
+}
+
 // src/providers/types.ts
 var ProviderError = class extends Error {
   constructor(message, cause) {
@@ -1204,18 +1292,24 @@ export {
   CLI_VERSION,
   ClientStateSchema,
   DEV_TYPES,
+  DefaultsSchema,
   DevTypeSchema,
   DevTypeSourceSchema,
   ERROR_CODES,
   FlowStateSchema,
   GitHubProvider,
   GitLabProvider,
+  NamingSchema,
   NotImplementedError,
   PROVIDERS,
   ProviderError,
   RULES,
   SessionIOError,
   SessionStateSchema,
+  StackConfigSchema,
+  StackDevflowSchema,
+  StackInfraSchema,
+  StackTemplatesSchema,
   createInitialSession,
   createProvider,
   detectFlowState,
@@ -1237,7 +1331,9 @@ export {
   getProjectClaudeSettingsPath,
   getProjectRoot,
   getSessionPath,
+  getStackConfigPath,
   hasSession,
+  hasStackConfig,
   inferProviderType,
   isAppOrigin,
   isBrownfield,
@@ -1248,6 +1344,8 @@ export {
   jsonError,
   jsonSuccess,
   loadSession,
+  loadStackConfig,
+  looksLikeLegacyMasterConfig,
   partition,
   readClientState,
   recordCommandResult,
@@ -1255,6 +1353,7 @@ export {
   requiresRepoContext,
   rulesForDevType,
   saveSession,
+  saveStackConfig,
   suggestedNextStep,
   updateClientState,
   writeClientState

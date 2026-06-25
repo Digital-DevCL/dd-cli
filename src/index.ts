@@ -16,6 +16,9 @@ export * from './utils/error-codes.js';
 export * from './utils/json-output.js';
 export * from './utils/client-state.js';
 
+// StackConfig (S1-1 / B.3 Apéndice) — master config del cliente en context repo.
+export * from './types/stack-config.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

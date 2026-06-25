@@ -649,6 +649,315 @@ declare function recordCommandResult(slug: string, command: string, result: {
 }): void;
 
 /**
+ * Schema de `.devflow-context/stack.yml` — master config del cliente (S1-1).
+ *
+ * Resuelve D-6 de Parte 1 del rediseño y la decisión arquitectónica central:
+ * dos schemas distintos compartían `.devflow/config.yml`. Ahora:
+ *   - `.devflow/config.yml`           → ProjectConfig (identidad repo↔cliente)
+ *   - `.devflow-context/stack.yml`    → StackConfig (master config del cliente)
+ *
+ * Vive en el context repo. Lo escribe `/devflow-ia:client-onboard` (Sprint 3)
+ * y `dd-cli client migrate` (S1-10). Lo leen las skills, el `init-client`
+ * para defaults, y el dashboard `client show`.
+ *
+ * Apéndice B.3 del doc rediseño.
+ */
+
+declare const StackInfraSchema: z.ZodObject<{
+    backend_framework: z.ZodString;
+    frontend_framework: z.ZodString;
+    databases: z.ZodArray<z.ZodString, "many">;
+    infra: z.ZodString;
+    k8s_namespaces: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    cicd_platform: z.ZodString;
+    identity_provider: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    container_registry: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    base_domain: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    backend_framework: string;
+    frontend_framework: string;
+    databases: string[];
+    infra: string;
+    cicd_platform: string;
+    identity_provider: string | null;
+    container_registry: string | null;
+    base_domain: string | null;
+    k8s_namespaces?: Record<string, string> | undefined;
+}, {
+    backend_framework: string;
+    frontend_framework: string;
+    databases: string[];
+    infra: string;
+    cicd_platform: string;
+    k8s_namespaces?: Record<string, string> | undefined;
+    identity_provider?: string | null | undefined;
+    container_registry?: string | null | undefined;
+    base_domain?: string | null | undefined;
+}>;
+declare const NamingSchema: z.ZodObject<{
+    feature_id_pattern: z.ZodDefault<z.ZodString>;
+    branch_pattern: z.ZodDefault<z.ZodString>;
+    spec_filename: z.ZodDefault<z.ZodString>;
+    epic_filename: z.ZodDefault<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    feature_id_pattern: string;
+    branch_pattern: string;
+    spec_filename: string;
+    epic_filename: string;
+}, {
+    feature_id_pattern?: string | undefined;
+    branch_pattern?: string | undefined;
+    spec_filename?: string | undefined;
+    epic_filename?: string | undefined;
+}>;
+declare const DefaultsSchema: z.ZodObject<{
+    acceptance_format: z.ZodDefault<z.ZodEnum<["gherkin", "checklist", "narrative"]>>;
+    story_format: z.ZodDefault<z.ZodEnum<["como-quiero-para", "user-story", "free"]>>;
+    sprint_duration_weeks: z.ZodDefault<z.ZodNumber>;
+    main_branch: z.ZodDefault<z.ZodString>;
+    qa_branch: z.ZodDefault<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    acceptance_format: "gherkin" | "checklist" | "narrative";
+    story_format: "como-quiero-para" | "user-story" | "free";
+    sprint_duration_weeks: number;
+    main_branch: string;
+    qa_branch: string;
+}, {
+    acceptance_format?: "gherkin" | "checklist" | "narrative" | undefined;
+    story_format?: "como-quiero-para" | "user-story" | "free" | undefined;
+    sprint_duration_weeks?: number | undefined;
+    main_branch?: string | undefined;
+    qa_branch?: string | undefined;
+}>;
+declare const StackTemplatesSchema: z.ZodObject<{
+    fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+    fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+    fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, z.ZodTypeAny, "passthrough">>;
+declare const StackDevflowSchema: z.ZodObject<{
+    mode: z.ZodDefault<z.ZodEnum<["local", "platform"]>>;
+    url: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    mode: "local" | "platform";
+    url: string | null;
+}, {
+    mode?: "local" | "platform" | undefined;
+    url?: string | null | undefined;
+}>;
+declare const StackConfigSchema: z.ZodObject<{
+    schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
+    client: z.ZodObject<{
+        slug: z.ZodString;
+        name: z.ZodString;
+        industry: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        team_size: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+        primary_contact: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        slug: string;
+        industry: string | null;
+        team_size: number | null;
+        primary_contact: string | null;
+    }, {
+        name: string;
+        slug: string;
+        industry?: string | null | undefined;
+        team_size?: number | null | undefined;
+        primary_contact?: string | null | undefined;
+    }>;
+    stack: z.ZodObject<{
+        backend_framework: z.ZodString;
+        frontend_framework: z.ZodString;
+        databases: z.ZodArray<z.ZodString, "many">;
+        infra: z.ZodString;
+        k8s_namespaces: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        cicd_platform: z.ZodString;
+        identity_provider: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        container_registry: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        base_domain: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, "strip", z.ZodTypeAny, {
+        backend_framework: string;
+        frontend_framework: string;
+        databases: string[];
+        infra: string;
+        cicd_platform: string;
+        identity_provider: string | null;
+        container_registry: string | null;
+        base_domain: string | null;
+        k8s_namespaces?: Record<string, string> | undefined;
+    }, {
+        backend_framework: string;
+        frontend_framework: string;
+        databases: string[];
+        infra: string;
+        cicd_platform: string;
+        k8s_namespaces?: Record<string, string> | undefined;
+        identity_provider?: string | null | undefined;
+        container_registry?: string | null | undefined;
+        base_domain?: string | null | undefined;
+    }>;
+    naming: z.ZodDefault<z.ZodObject<{
+        feature_id_pattern: z.ZodDefault<z.ZodString>;
+        branch_pattern: z.ZodDefault<z.ZodString>;
+        spec_filename: z.ZodDefault<z.ZodString>;
+        epic_filename: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        feature_id_pattern: string;
+        branch_pattern: string;
+        spec_filename: string;
+        epic_filename: string;
+    }, {
+        feature_id_pattern?: string | undefined;
+        branch_pattern?: string | undefined;
+        spec_filename?: string | undefined;
+        epic_filename?: string | undefined;
+    }>>;
+    defaults: z.ZodDefault<z.ZodObject<{
+        acceptance_format: z.ZodDefault<z.ZodEnum<["gherkin", "checklist", "narrative"]>>;
+        story_format: z.ZodDefault<z.ZodEnum<["como-quiero-para", "user-story", "free"]>>;
+        sprint_duration_weeks: z.ZodDefault<z.ZodNumber>;
+        main_branch: z.ZodDefault<z.ZodString>;
+        qa_branch: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        acceptance_format: "gherkin" | "checklist" | "narrative";
+        story_format: "como-quiero-para" | "user-story" | "free";
+        sprint_duration_weeks: number;
+        main_branch: string;
+        qa_branch: string;
+    }, {
+        acceptance_format?: "gherkin" | "checklist" | "narrative" | undefined;
+        story_format?: "como-quiero-para" | "user-story" | "free" | undefined;
+        sprint_duration_weeks?: number | undefined;
+        main_branch?: string | undefined;
+        qa_branch?: string | undefined;
+    }>>;
+    templates: z.ZodDefault<z.ZodObject<{
+        fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+        fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+        fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">>>;
+    devflow: z.ZodDefault<z.ZodObject<{
+        mode: z.ZodDefault<z.ZodEnum<["local", "platform"]>>;
+        url: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, "strip", z.ZodTypeAny, {
+        mode: "local" | "platform";
+        url: string | null;
+    }, {
+        mode?: "local" | "platform" | undefined;
+        url?: string | null | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    schema_version: "1.0";
+    client: {
+        name: string;
+        slug: string;
+        industry: string | null;
+        team_size: number | null;
+        primary_contact: string | null;
+    };
+    stack: {
+        backend_framework: string;
+        frontend_framework: string;
+        databases: string[];
+        infra: string;
+        cicd_platform: string;
+        identity_provider: string | null;
+        container_registry: string | null;
+        base_domain: string | null;
+        k8s_namespaces?: Record<string, string> | undefined;
+    };
+    naming: {
+        feature_id_pattern: string;
+        branch_pattern: string;
+        spec_filename: string;
+        epic_filename: string;
+    };
+    defaults: {
+        acceptance_format: "gherkin" | "checklist" | "narrative";
+        story_format: "como-quiero-para" | "user-story" | "free";
+        sprint_duration_weeks: number;
+        main_branch: string;
+        qa_branch: string;
+    };
+    templates: {
+        fullstack: string | null;
+        api: string | null;
+    } & {
+        [k: string]: unknown;
+    };
+    devflow: {
+        mode: "local" | "platform";
+        url: string | null;
+    };
+}, {
+    client: {
+        name: string;
+        slug: string;
+        industry?: string | null | undefined;
+        team_size?: number | null | undefined;
+        primary_contact?: string | null | undefined;
+    };
+    stack: {
+        backend_framework: string;
+        frontend_framework: string;
+        databases: string[];
+        infra: string;
+        cicd_platform: string;
+        k8s_namespaces?: Record<string, string> | undefined;
+        identity_provider?: string | null | undefined;
+        container_registry?: string | null | undefined;
+        base_domain?: string | null | undefined;
+    };
+    schema_version?: "1.0" | undefined;
+    naming?: {
+        feature_id_pattern?: string | undefined;
+        branch_pattern?: string | undefined;
+        spec_filename?: string | undefined;
+        epic_filename?: string | undefined;
+    } | undefined;
+    defaults?: {
+        acceptance_format?: "gherkin" | "checklist" | "narrative" | undefined;
+        story_format?: "como-quiero-para" | "user-story" | "free" | undefined;
+        sprint_duration_weeks?: number | undefined;
+        main_branch?: string | undefined;
+        qa_branch?: string | undefined;
+    } | undefined;
+    templates?: z.objectInputType<{
+        fullstack: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+        api: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
+    devflow?: {
+        mode?: "local" | "platform" | undefined;
+        url?: string | null | undefined;
+    } | undefined;
+}>;
+type StackConfig = z.infer<typeof StackConfigSchema>;
+declare function getStackConfigPath(contextRepoRoot: string): string;
+declare function hasStackConfig(contextRepoRoot: string): boolean;
+declare function loadStackConfig(contextRepoRoot: string): StackConfig | null;
+declare function saveStackConfig(contextRepoRoot: string, config: StackConfig): void;
+/**
+ * Heurística para detectar el config.yml "master" legacy.
+ *
+ * El ProjectConfig nuevo (.devflow/config.yml) tiene `client + app + devflow`.
+ * El master legacy (también `.devflow/config.yml` pero en context repo) tiene
+ * `project + naming + defaults + stack + devflow + templates`.
+ *
+ * Si vemos `stack` o `project` en el top-level, asumimos legacy.
+ */
+declare function looksLikeLegacyMasterConfig(parsed: unknown): boolean;
+
+/**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
  * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
@@ -901,4 +1210,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };
