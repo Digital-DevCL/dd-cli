@@ -34,6 +34,7 @@ import { runClientShow } from '../commands/client-show.js';
 import { runClientList, runHome } from '../commands/client-list.js';
 import { runClientRefresh } from '../commands/client-refresh.js';
 import { runClientOnboardDev } from '../commands/client-onboard-dev.js';
+import { runClientCompare } from '../commands/client-compare.js';
 import { runErrorCodes } from '../commands/error-codes-cmd.js';
 import {
   runHduNew, runHduList, runHduShow,
@@ -510,6 +511,16 @@ clientCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (slug: string, opts: { json?: boolean }) => {
     try { process.exit(await runClientShow(slug, { json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('compare <slugA> <slugB>')
+  .description('S7-4: compara dos clientes en stack/auth/cicd/apps. Útil para alinear patrones cross-cliente.')
+  .option('--aspect <a>', 'stack | auth | cicd | apps | all', 'all')
+  .option('--json', 'Output JSON', false)
+  .action(async (slugA: string, slugB: string, opts: any) => {
+    try { process.exit(await runClientCompare(slugA, slugB, opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

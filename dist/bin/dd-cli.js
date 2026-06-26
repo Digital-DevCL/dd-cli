@@ -7555,6 +7555,207 @@ Setup local para ${slug}
   return 0;
 }
 
+// src/commands/client-compare.ts
+import { existsSync as existsSync38 } from "fs";
+function diffSets(a, b) {
+  const setA = new Set(a);
+  const setB = new Set(b);
+  return {
+    shared: [...setA].filter((x) => setB.has(x)),
+    only_a: [...setA].filter((x) => !setB.has(x)),
+    only_b: [...setB].filter((x) => !setA.has(x))
+  };
+}
+async function runClientCompare(slugA, slugB, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slugA || !slugB) {
+    const e = { code: "INVALID_INPUT", message: "Uso: dd-cli client compare <slugA> <slugB> [--aspect=stack|auth|cicd|apps|all]" };
+    if (jsonMode) emitJson(jsonError({ command: "client compare", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const aspect = opts.aspect ?? "all";
+  if (!["stack", "auth", "cicd", "apps", "all"].includes(aspect)) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: `--aspect=${aspect} inv\xE1lido. Us\xE1: stack | auth | cicd | apps | all`
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client compare", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  for (const slug of [slugA, slugB]) {
+    const entry = getClient(slug);
+    if (!entry) {
+      const e = {
+        code: "CLIENT_NOT_REGISTERED",
+        message: `Cliente "${slug}" no registrado.`,
+        recovery_hints: [`dd-cli client list para ver los registrados`]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client compare", ...e }));
+      printErr(e.message);
+      return 2;
+    }
+    if (!existsSync38(getClientCacheDir(slug))) {
+      const e = {
+        code: "CONTEXT_CACHE_MISSING",
+        message: `Cache local no encontrada para "${slug}".`,
+        recovery_hints: [`dd-cli pull-context ${slug}`]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client compare", ...e }));
+      printErr(e.message);
+      return 2;
+    }
+  }
+  const cacheA = getClientCacheDir(slugA);
+  const cacheB = getClientCacheDir(slugB);
+  const stackA = (() => {
+    try {
+      return loadStackConfig(cacheA);
+    } catch {
+      return null;
+    }
+  })();
+  const stackB = (() => {
+    try {
+      return loadStackConfig(cacheB);
+    } catch {
+      return null;
+    }
+  })();
+  const catalogA = (() => {
+    try {
+      return loadCatalog(cacheA);
+    } catch {
+      return null;
+    }
+  })();
+  const catalogB = (() => {
+    try {
+      return loadCatalog(cacheB);
+    } catch {
+      return null;
+    }
+  })();
+  const sections = {};
+  if (aspect === "stack" || aspect === "all") {
+    sections["stack"] = {
+      a: stackA ? {
+        backend: stackA.stack.backend_framework,
+        frontend: stackA.stack.frontend_framework,
+        databases: stackA.stack.databases,
+        infra: stackA.stack.infra,
+        cicd_platform: stackA.stack.cicd_platform
+      } : null,
+      b: stackB ? {
+        backend: stackB.stack.backend_framework,
+        frontend: stackB.stack.frontend_framework,
+        databases: stackB.stack.databases,
+        infra: stackB.stack.infra,
+        cicd_platform: stackB.stack.cicd_platform
+      } : null,
+      databases_diff: stackA && stackB ? diffSets(stackA.stack.databases, stackB.stack.databases) : null
+    };
+  }
+  if (aspect === "auth" || aspect === "all") {
+    const authA = [...new Set((catalogA?.apps ?? []).map((a) => a.auth_profile).filter(Boolean))];
+    const authB = [...new Set((catalogB?.apps ?? []).map((a) => a.auth_profile).filter(Boolean))];
+    sections["auth"] = {
+      a: authA,
+      b: authB,
+      diff: diffSets(authA, authB)
+    };
+  }
+  if (aspect === "cicd" || aspect === "all") {
+    const cicdA = [...new Set((catalogA?.apps ?? []).map((a) => a.ci_cd_profile).filter((p) => Boolean(p) && p !== "[por-confirmar]"))];
+    const cicdB = [...new Set((catalogB?.apps ?? []).map((a) => a.ci_cd_profile).filter((p) => Boolean(p) && p !== "[por-confirmar]"))];
+    sections["cicd"] = {
+      a: cicdA,
+      b: cicdB,
+      diff: diffSets(cicdA, cicdB)
+    };
+  }
+  if (aspect === "apps" || aspect === "all") {
+    const countByType = (cat) => {
+      const out = {};
+      for (const app of cat?.apps ?? []) {
+        out[app.type] = (out[app.type] ?? 0) + 1;
+      }
+      return out;
+    };
+    sections["apps"] = {
+      a: countByType(catalogA),
+      b: countByType(catalogB),
+      total_a: catalogA?.apps.length ?? 0,
+      total_b: catalogB?.apps.length ?? 0
+    };
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("client compare", {
+      a: slugA,
+      b: slugB,
+      aspect,
+      sections
+    }));
+  }
+  console.log("");
+  console.log(`  ${bold(slugA)}  ${bold("vs")}  ${bold(slugB)}    (aspect: ${aspect})`);
+  console.log("");
+  if (sections["stack"]) {
+    const s = sections["stack"];
+    console.log(bold("  STACK"));
+    if (!s.a || !s.b) {
+      printDim(`  (uno de los clientes no tiene stack.yml)`);
+    } else {
+      console.log(`    backend       ${s.a.backend}`);
+      console.log(`                  ${s.b.backend}    ${s.a.backend === s.b.backend ? "\u2713 igual" : "\u26A0 distinto"}`);
+      console.log(`    frontend      ${s.a.frontend}`);
+      console.log(`                  ${s.b.frontend}    ${s.a.frontend === s.b.frontend ? "\u2713 igual" : "\u26A0 distinto"}`);
+      console.log(`    infra         ${s.a.infra}`);
+      console.log(`                  ${s.b.infra}    ${s.a.infra === s.b.infra ? "\u2713 igual" : "\u26A0 distinto"}`);
+      console.log(`    cicd          ${s.a.cicd_platform}`);
+      console.log(`                  ${s.b.cicd_platform}    ${s.a.cicd_platform === s.b.cicd_platform ? "\u2713 igual" : "\u26A0 distinto"}`);
+      if (s.databases_diff) {
+        if (s.databases_diff.shared.length > 0) printDim(`    DBs compartidas: ${s.databases_diff.shared.join(", ")}`);
+        if (s.databases_diff.only_a.length > 0) printDim(`    Solo en ${slugA}: ${s.databases_diff.only_a.join(", ")}`);
+        if (s.databases_diff.only_b.length > 0) printDim(`    Solo en ${slugB}: ${s.databases_diff.only_b.join(", ")}`);
+      }
+    }
+    console.log("");
+  }
+  if (sections["auth"]) {
+    const s = sections["auth"];
+    console.log(bold("  AUTH PROFILES"));
+    if (s.diff.shared.length > 0) printDim(`    compartidos: ${s.diff.shared.join(", ")}`);
+    if (s.diff.only_a.length > 0) printDim(`    solo en ${slugA}: ${s.diff.only_a.join(", ")}`);
+    if (s.diff.only_b.length > 0) printDim(`    solo en ${slugB}: ${s.diff.only_b.join(", ")}`);
+    if (s.a.length === 0 && s.b.length === 0) printDim("    (ninguno tiene auth profiles definidos)");
+    console.log("");
+  }
+  if (sections["cicd"]) {
+    const s = sections["cicd"];
+    console.log(bold("  CI/CD PROFILES"));
+    if (s.diff.shared.length > 0) printDim(`    compartidos: ${s.diff.shared.join(", ")}`);
+    if (s.diff.only_a.length > 0) printDim(`    solo en ${slugA}: ${s.diff.only_a.join(", ")}`);
+    if (s.diff.only_b.length > 0) printDim(`    solo en ${slugB}: ${s.diff.only_b.join(", ")}`);
+    if (s.a.length === 0 && s.b.length === 0) printDim("    (ninguno tiene ci_cd profiles concretos)");
+    console.log("");
+  }
+  if (sections["apps"]) {
+    const s = sections["apps"];
+    console.log(bold("  APPS"));
+    console.log(`    total         ${slugA}: ${s.total_a}     ${slugB}: ${s.total_b}`);
+    const types = /* @__PURE__ */ new Set([...Object.keys(s.a), ...Object.keys(s.b)]);
+    for (const type of types) {
+      const ca = s.a[type] ?? 0;
+      const cb = s.b[type] ?? 0;
+      printDim(`    ${type.padEnd(15)}  ${ca.toString().padStart(3)}  ${cb.toString().padStart(3)}`);
+    }
+    console.log("");
+  }
+  return 0;
+}
+
 // src/commands/error-codes-cmd.ts
 var EXIT_CODE_CATEGORIES = {
   1: "Operacional (red, permisos, archivo no encontrado)",
@@ -7609,7 +7810,7 @@ async function runErrorCodes(opts = {}) {
 }
 
 // src/commands/hdu-cmd.ts
-import { existsSync as existsSync38 } from "fs";
+import { existsSync as existsSync39 } from "fs";
 import { input as input5 } from "@inquirer/prompts";
 var isTTY11 = process.stdout.isTTY;
 function resolveCacheDir(clientSlug) {
@@ -7625,7 +7826,7 @@ function resolveCacheDir(clientSlug) {
     };
   }
   const cacheDir = getClientCacheDir(clientSlug);
-  if (!existsSync38(cacheDir)) {
+  if (!existsSync39(cacheDir)) {
     return {
       ok: false,
       error: {
@@ -8089,7 +8290,7 @@ async function runHduIndexCmd(opts = {}) {
 }
 
 // src/commands/hdu-next.ts
-import { existsSync as existsSync39 } from "fs";
+import { existsSync as existsSync40 } from "fs";
 var PRIORITY_SCORE = {
   "cr\xEDtica": 100,
   "alta": 50,
@@ -8162,7 +8363,7 @@ async function runHduNext(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync39(cacheDir)) {
+  if (!existsSync40(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -8249,7 +8450,7 @@ async function runHduNext(opts = {}) {
 
 // src/commands/hdu-apply-merge.ts
 import { execSync as execSync9 } from "child_process";
-import { existsSync as existsSync40 } from "fs";
+import { existsSync as existsSync41 } from "fs";
 import * as path34 from "path";
 function runGit7(cmd, cwd) {
   return execSync9(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -8278,7 +8479,7 @@ function getCommitAuthorEmail(repoRoot) {
 async function runHduApplyMerge(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const repoRoot = path34.resolve(opts.path ?? process.cwd());
-  if (!existsSync40(getHdusDir(repoRoot))) {
+  if (!existsSync41(getHdusDir(repoRoot))) {
     const e = {
       code: "CONTEXT_REPO_INVALID",
       message: `No hay hdus/ en ${repoRoot}. \xBFEst\xE1s en un context repo?`,
@@ -8415,7 +8616,7 @@ Generado por dd-cli hdu apply-merge (S5-4).`;
 }
 
 // src/commands/stats-cmd.ts
-import { existsSync as existsSync41 } from "fs";
+import { existsSync as existsSync42 } from "fs";
 function parsePeriodToMs(period) {
   if (period === "all") return null;
   const match = period.match(/^(\d+)d$/);
@@ -8468,7 +8669,7 @@ async function runStats(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync41(cacheDir)) {
+  if (!existsSync42(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -8595,7 +8796,7 @@ async function runStats(opts = {}) {
 }
 
 // src/commands/guide-cmd.ts
-import { existsSync as existsSync42, readFileSync as readFileSync26 } from "fs";
+import { existsSync as existsSync43, readFileSync as readFileSync26 } from "fs";
 import { spawnSync } from "child_process";
 import * as path35 from "path";
 import { fileURLToPath as fileURLToPath6 } from "url";
@@ -8614,7 +8815,7 @@ function resolveDocsPath(filename) {
       path35.resolve(here, "../../../docs", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync42(c3)) return c3;
+      if (existsSync43(c3)) return c3;
     }
   } catch {
   }
@@ -8677,7 +8878,7 @@ async function runGuide(topic, opts = {}) {
 }
 
 // src/commands/today-cmd.ts
-import { existsSync as existsSync43 } from "fs";
+import { existsSync as existsSync44 } from "fs";
 function ageInHours3(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -8707,7 +8908,7 @@ async function runToday(opts = {}) {
   const queue = [];
   for (const entry of Object.values(registry.clients)) {
     const cacheDir = getClientCacheDir(entry.slug);
-    if (!existsSync43(cacheDir)) continue;
+    if (!existsSync44(cacheDir)) continue;
     let hdus;
     try {
       hdus = listHdus(cacheDir);
@@ -8743,7 +8944,7 @@ async function runToday(opts = {}) {
     }
     if (user) {
       const cacheDir = getClientCacheDir(entry.slug);
-      if (!existsSync43(cacheDir)) continue;
+      if (!existsSync44(cacheDir)) continue;
       let hdus;
       try {
         hdus = listHdus(cacheDir);
@@ -8813,7 +9014,7 @@ async function runToday(opts = {}) {
 }
 
 // src/commands/inbox-cmd.ts
-import { existsSync as existsSync44, mkdirSync as mkdirSync22, readFileSync as readFileSync27, appendFileSync as appendFileSync5, writeFileSync as writeFileSync19 } from "fs";
+import { existsSync as existsSync45, mkdirSync as mkdirSync22, readFileSync as readFileSync27, appendFileSync as appendFileSync5, writeFileSync as writeFileSync19 } from "fs";
 import * as path36 from "path";
 import { z as z11 } from "zod";
 var InboxEventSchema = z11.object({
@@ -8831,7 +9032,7 @@ function getInboxPath() {
 }
 function readInbox() {
   const p = getInboxPath();
-  if (!existsSync44(p)) return [];
+  if (!existsSync45(p)) return [];
   return readFileSync27(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
     try {
       return InboxEventSchema.parse(JSON.parse(l));
@@ -8843,14 +9044,14 @@ function readInbox() {
 function writeInbox(events) {
   const p = getInboxPath();
   const dir = path36.dirname(p);
-  if (!existsSync44(dir)) mkdirSync22(dir, { recursive: true });
+  if (!existsSync45(dir)) mkdirSync22(dir, { recursive: true });
   const content = events.map((e) => JSON.stringify(InboxEventSchema.parse(e))).join("\n") + "\n";
   writeFileSync19(p, content, "utf-8");
 }
 function appendInboxEvent(event) {
   const p = getInboxPath();
   const dir = path36.dirname(p);
-  if (!existsSync44(dir)) mkdirSync22(dir, { recursive: true });
+  if (!existsSync45(dir)) mkdirSync22(dir, { recursive: true });
   const full = InboxEventSchema.parse({
     ts: event.ts ?? (/* @__PURE__ */ new Date()).toISOString(),
     read: event.read ?? false,
@@ -8973,7 +9174,7 @@ async function runInboxAdd(opts = {}) {
 }
 
 // src/commands/telemetry-cmd.ts
-import { existsSync as existsSync45, statSync as statSync8, unlinkSync } from "fs";
+import { existsSync as existsSync46, statSync as statSync8, unlinkSync } from "fs";
 import { confirm as confirm5 } from "@inquirer/prompts";
 var isTTY12 = process.stdout.isTTY;
 async function runTelemetryEnable(opts = {}) {
@@ -9025,7 +9226,7 @@ async function runTelemetryStatus(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const config = loadTelemetryConfig();
   const eventsPath = getTelemetryEventsPath();
-  const eventsExists = existsSync45(eventsPath);
+  const eventsExists = existsSync46(eventsPath);
   const fileSize = eventsExists ? statSync8(eventsPath).size : 0;
   const events = eventsExists ? readTelemetryEvents() : [];
   if (jsonMode) {
@@ -9114,7 +9315,7 @@ async function runTelemetryReport(opts = {}) {
 async function runTelemetryPurge(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const p = getTelemetryEventsPath();
-  if (!existsSync45(p)) {
+  if (!existsSync46(p)) {
     if (jsonMode) emitJson(jsonSuccess("telemetry purge", { purged: false, reason: "no events file" }));
     printDim("No hay archivo de eventos para borrar.");
     return 0;
@@ -9451,6 +9652,14 @@ contextCmd.command("render [path]").description("Regenera las vistas markdown de
 clientCmd.command("show <slug>").description("Dashboard del cliente: stack, apps, profiles, \xFAltimo sync, acciones sugeridas.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
   try {
     process.exit(await runClientShow(slug, { json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("compare <slugA> <slugB>").description("S7-4: compara dos clientes en stack/auth/cicd/apps. \xDAtil para alinear patrones cross-cliente.").option("--aspect <a>", "stack | auth | cicd | apps | all", "all").option("--json", "Output JSON", false).action(async (slugA, slugB, opts) => {
+  try {
+    process.exit(await runClientCompare(slugA, slugB, opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
