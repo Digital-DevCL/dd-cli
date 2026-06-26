@@ -31,6 +31,7 @@ import { runClientNew } from '../commands/client-new.js';
 import { runClientPublish } from '../commands/client-publish.js';
 import { runClientShow } from '../commands/client-show.js';
 import { runClientList, runHome } from '../commands/client-list.js';
+import { runClientRefresh } from '../commands/client-refresh.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -268,6 +269,17 @@ program
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runHome({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('refresh <slug>')
+  .description('Re-corre discovery y muestra diff vs el catálogo actual. Idempotente; con --apply persiste.')
+  .option('--apply', 'Persiste el diff al catalog.yml. Sin esto, dry-run.', false)
+  .option('--concurrency <n>', 'Paralelismo de file reads (default 5).', (v) => Number.parseInt(v, 10))
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: { apply?: boolean; concurrency?: number; json?: boolean }) => {
+    try { process.exit(await runClientRefresh(slug, opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

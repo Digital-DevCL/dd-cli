@@ -6521,6 +6521,274 @@ async function runHome(opts = {}) {
   return 0;
 }
 
+// src/commands/client-refresh.ts
+import { existsSync as existsSync33 } from "fs";
+function discoveryRepoToCatalogApp(repo) {
+  const authProfile = repo.auth_pattern === "unknown" ? null : repo.auth_pattern;
+  return CatalogAppSchema.parse({
+    slug: repo.slug,
+    name: repo.display_name || repo.slug,
+    type: repo.app_type,
+    role: repo.is_portal_shell ? "portal" : repo.is_template ? "standalone" : "standalone",
+    auth_profile: authProfile,
+    ci_cd_profile: null,
+    // refresh no decide profiles — los humanos lo hacen
+    repo: null,
+    // se podría reconstruir desde provider.url
+    branch: "main",
+    status: repo.inactive ? "inactive" : "unknown",
+    app_origin: "legacy-app",
+    template_origin: null,
+    preferred_dev_types: [],
+    tags: repo.is_template ? ["template"] : [],
+    notes: null
+  });
+}
+function computeDiff(current, next) {
+  const diffs = [];
+  const currentBySlug = new Map(current.map((a) => [a.slug, a]));
+  const nextBySlug = new Map(next.map((a) => [a.slug, a]));
+  for (const [slug, app] of nextBySlug) {
+    if (!currentBySlug.has(slug)) {
+      diffs.push({ slug, change: "added", after: app });
+    }
+  }
+  for (const [slug, app] of currentBySlug) {
+    if (!nextBySlug.has(slug)) {
+      diffs.push({ slug, change: "removed", before: app });
+    }
+  }
+  const watchedFields = ["type", "status", "auth_profile", "role"];
+  for (const [slug, before] of currentBySlug) {
+    const after = nextBySlug.get(slug);
+    if (!after) continue;
+    const changed = [];
+    for (const f of watchedFields) {
+      if (JSON.stringify(before[f]) !== JSON.stringify(after[f])) changed.push(String(f));
+    }
+    if (changed.length > 0) {
+      diffs.push({
+        slug,
+        change: "modified",
+        before: Object.fromEntries(changed.map((f) => [f, before[f]])),
+        after: Object.fromEntries(changed.map((f) => [f, after[f]])),
+        changed_fields: changed
+      });
+    }
+  }
+  return diffs;
+}
+function applyDiffToCatalog(current, next, diff) {
+  const currentBySlug = new Map(current.apps.map((a) => [a.slug, a]));
+  const apps = [];
+  for (const fresh of next) {
+    const existing = currentBySlug.get(fresh.slug);
+    if (existing) {
+      apps.push({
+        ...fresh,
+        // Preservar lo editado a mano:
+        name: existing.name && existing.name !== fresh.slug ? existing.name : fresh.name,
+        ci_cd_profile: existing.ci_cd_profile,
+        repo: existing.repo,
+        preferred_dev_types: existing.preferred_dev_types.length > 0 ? existing.preferred_dev_types : fresh.preferred_dev_types,
+        tags: [.../* @__PURE__ */ new Set([...existing.tags, ...fresh.tags])],
+        notes: existing.notes ?? fresh.notes,
+        // Status mantiene el del discovery solo si dejó de existir (inactive),
+        // si no, preservar el editado a mano (puede haber sido marcado deprecated).
+        status: fresh.status === "inactive" ? "inactive" : existing.status
+      });
+    } else {
+      apps.push(fresh);
+    }
+  }
+  return CatalogSchema.parse({ ...current, apps });
+}
+async function runClientRefresh(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug) {
+    const e = { code: "INVALID_INPUT", message: "Falta el slug. Uso: dd-cli client refresh <slug>" };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    const e = {
+      code: "CLIENT_NOT_REGISTERED",
+      message: `Cliente "${slug}" no registrado.`,
+      recovery_hints: [`Registr\xE1 el cliente primero: dd-cli client new ${slug}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const creds = getClientCredentials(slug);
+  if (!creds) {
+    const e = {
+      code: "TOKEN_MISSING",
+      message: `No hay credenciales API para "${slug}".`,
+      recovery_hints: [`Agregalas: dd-cli register-client ${slug} --git-token=<PAT> --git-group=<grupo> --force`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const cacheDir = getClientCacheDir(slug);
+  if (!existsSync33(cacheDir)) {
+    const e = {
+      code: "CONTEXT_CACHE_MISSING",
+      message: `Cache local no encontrada: ${cacheDir}`,
+      recovery_hints: [`Sincroniz\xE1: dd-cli pull-context ${slug}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const currentCatalog = loadCatalog(cacheDir) ?? CatalogSchema.parse({ apps: [] });
+  if (!jsonMode) {
+    console.log(bold(`
+Refresh de ${slug}
+`));
+    printInfo(`Re-corriendo discovery contra ${creds.git_host}/${creds.git_group} ...`);
+  }
+  const provider = createProvider(creds);
+  const tokenCheck = await provider.validateToken({ required_for: ["read"] });
+  if (!tokenCheck.valid) {
+    const e = {
+      code: "TOKEN_INVALID",
+      message: tokenCheck.message,
+      context: { provider: provider.type },
+      recovery_hints: [`Regener\xE1 el token: dd-cli register-client ${slug} --git-token=<nuevo> --force`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...e }));
+    printErr(e.message);
+    return 1;
+  }
+  let discovery;
+  try {
+    const repos = await provider.listGroupRepos();
+    const concurrency = Math.max(1, Math.min(opts.concurrency ?? 5, 20));
+    const analyses = [];
+    for (const meta of repos) {
+      const lastActiveDays = meta.last_push ? Math.floor((Date.now() - new Date(meta.last_push).getTime()) / 864e5) : 9999;
+      const veryInactive = meta.archived || lastActiveDays > 365;
+      if (veryInactive) {
+        analyses.push(analyzeRepo(meta, {}));
+        continue;
+      }
+      const files = await readKeyFiles2(provider, provider.type === "gitlab" ? meta.id : meta.slug, meta.default_branch, concurrency);
+      analyses.push(analyzeRepo(meta, files));
+    }
+    discovery = synthesizeDiscovery(analyses);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const errObj = {
+      code: "NETWORK_ERROR",
+      message: `Discovery fall\xF3: ${errMsg}`,
+      context: { provider: provider.type },
+      recovery_hints: ["Verific\xE1 conectividad y validez del token"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client refresh", ...errObj }));
+    printErr(errObj.message);
+    return 1;
+  }
+  const freshApps = discovery.repos.map(discoveryRepoToCatalogApp);
+  const diff = computeDiff(currentCatalog.apps, freshApps);
+  const noChanges = diff.length === 0;
+  if (!jsonMode) {
+    console.log("");
+    printOk(`Discovery completo (${discovery.repos.length} repos)`);
+    printDim("  " + discovery.summary);
+    console.log("");
+    if (noChanges) {
+      printOk("No hay cambios \u2014 el cat\xE1logo est\xE1 al d\xEDa.");
+    } else {
+      printInfo(`Diff (${diff.length} cambios):`);
+      for (const d of diff) {
+        if (d.change === "added") {
+          console.log(`  + ${d.slug}  (${d.after?.type ?? "?"} \xB7 ${d.after?.auth_profile ?? "sin auth"})`);
+        } else if (d.change === "removed") {
+          console.log(`  - ${d.slug}`);
+        } else {
+          console.log(`  ~ ${d.slug}  (${d.changed_fields?.join(", ")})`);
+        }
+      }
+    }
+    console.log("");
+  }
+  let applied = false;
+  if (opts.apply && !noChanges) {
+    const merged = applyDiffToCatalog(currentCatalog, freshApps, diff);
+    saveCatalog(cacheDir, merged);
+    try {
+      await runContextRender(cacheDir, { json: true });
+    } catch {
+    }
+    applied = true;
+    if (!jsonMode) {
+      printOk("Cat\xE1logo actualizado en cache local.");
+      printDim("  Para publicar: dd-cli client publish " + slug);
+    }
+  } else if (!noChanges && !jsonMode) {
+    printInfo("Dry-run. Para aplicar: dd-cli client refresh " + slug + " --apply");
+  }
+  const existingState = readClientState(slug)?.state;
+  let nextState;
+  if (applied) {
+    if (existingState === "READY" || existingState === "ACTIVE" || existingState === "NEEDS_REFRESH") {
+      nextState = "DRAFT";
+    }
+  }
+  recordCommandResult(slug, "client refresh", {
+    success: true,
+    state: nextState,
+    nextSafe: applied ? `dd-cli client publish ${slug}` : null
+  });
+  const output = {
+    slug,
+    applied,
+    discovery_summary: discovery.summary,
+    diff,
+    total_changes: diff.length,
+    no_changes: noChanges
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("client refresh", output, applied ? `dd-cli client publish ${slug}` : null));
+  }
+  return 0;
+}
+var DISCOVERY_FILES2 = [
+  "package.json",
+  "composer.json",
+  "pom.xml",
+  "requirements.txt",
+  "Gemfile",
+  ".gitlab-ci.yml",
+  ".github/workflows/ci.yml",
+  "config/sso.php",
+  "config/auth.php",
+  "src/auth/index.ts",
+  "src/main.ts",
+  "app/Http/Kernel.php"
+];
+async function readKeyFiles2(provider, repoIdOrSlug, branch, concurrency) {
+  const result = {};
+  const queue = [...DISCOVERY_FILES2];
+  async function worker() {
+    while (queue.length > 0) {
+      const file = queue.shift();
+      if (!file) return;
+      try {
+        result[file] = await provider.readFile(repoIdOrSlug, file, branch);
+      } catch {
+        result[file] = { path: file, content: "", found: false };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return result;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -6681,6 +6949,14 @@ clientCmd.command("list").description("Lista todos los clientes registrados con 
 program.command("home").description("Dashboard del operador: tus clientes, sesi\xF3n activa, sistema.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
   try {
     process.exit(await runHome({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("refresh <slug>").description("Re-corre discovery y muestra diff vs el cat\xE1logo actual. Idempotente; con --apply persiste.").option("--apply", "Persiste el diff al catalog.yml. Sin esto, dry-run.", false).option("--concurrency <n>", "Paralelismo de file reads (default 5).", (v) => Number.parseInt(v, 10)).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientRefresh(slug, opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
