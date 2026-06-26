@@ -34,6 +34,13 @@ import { runClientList, runHome } from '../commands/client-list.js';
 import { runClientRefresh } from '../commands/client-refresh.js';
 import { runClientOnboardDev } from '../commands/client-onboard-dev.js';
 import { runErrorCodes } from '../commands/error-codes-cmd.js';
+import {
+  runHduNew, runHduList, runHduShow,
+  runHduStart, runHduReview, runHduApprove, runHduClose, runHduCancel,
+  runHduAssign, runHduClaim, runHduIndexCmd,
+} from '../commands/hdu-cmd.js';
+import { runHduNext } from '../commands/hdu-next.js';
+import { runStats } from '../commands/stats-cmd.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -123,13 +130,162 @@ program
 program
   .command('new-hdu <title>')
   .alias('new-feature')
-  .description('Crea una HDU desde el template y lanza Claude con /devflow-ia:design-hdu')
+  .description('[DEPRECATED — usá `dd-cli hdu new`] Crea una HDU desde el template y lanza Claude con /devflow-ia:design-hdu')
   .option('--type <type>', 'dev_type sugerido (Tech Lead confirma en design-hdu)')
   .option('--no-claude', 'No lanzar claude — solo crear el archivo', false)
   .action(async (title, opts) => {
+    console.error('⚠  `dd-cli new-hdu` está deprecado. Usá: dd-cli hdu new "<título>" --client=<slug>');
     try {
       process.exit(await runNewHdu(title, { type: opts.type, noClaude: opts.claude === false }));
     } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Namespace `hdu` — Sprint 5 (S5-2)
+const hduCmd = program
+  .command('hdu')
+  .description('Gestión de HDUs en el context repo del cliente (Sprint 5).');
+
+hduCmd
+  .command('new <title>')
+  .description('Crea una HDU draft. Requiere --client=<slug>.')
+  .option('--client <slug>', 'Slug del cliente cuyo context repo aloja la HDU')
+  .option('--app <slug>', 'App afectada (apps_affected)')
+  .option('--priority <p>', 'baja | media | alta | crítica', 'media')
+  .option('--dev-type <type>', 'dev_type sugerido')
+  .option('--created-by <email>', 'Email del PMO/creador')
+  .option('--assigned-to <email>', 'Email del dev asignado (opcional)')
+  .option('--json', 'Output JSON', false)
+  .action(async (title: string, opts: any) => {
+    try { process.exit(await runHduNew(title, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('list')
+  .description('Lista HDUs del cliente.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--status <s>', 'Filtrar por status (draft|approved|in-progress|in-review|done|cancelled)')
+  .option('--mine', 'Solo HDUs asignadas al --user dado', false)
+  .option('--user <email>', 'Email del dev (necesario con --mine)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runHduList(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('show <id>')
+  .description('Muestra una HDU + su historial de transiciones.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduShow(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('start <id>')
+  .description('Dev arranca a trabajar la HDU (approved → in-progress).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--by <email>', 'Email del dev')
+  .option('--reason <r>', 'Razón opcional')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduStart(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('review <id>')
+  .description('Dev envía a code review (in-progress → in-review).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--by <email>', 'Email del dev')
+  .option('--reason <r>', 'Razón opcional (ej: MR #43)')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduReview(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('approve <id>')
+  .description('Tech Lead aprueba la HDU (draft → approved).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--by <email>', 'Email del Tech Lead que aprueba')
+  .option('--reason <r>', 'Razón opcional')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduApprove(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('close <id>')
+  .description('Cierra la HDU al mergear el PR del código (in-review → done).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--by <email>', 'Email del dev que cierra')
+  .option('--reason <r>', 'Razón opcional')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduClose(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('cancel <id>')
+  .description('Cancela una HDU. --reason obligatorio.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--by <email>', 'Email del actor')
+  .option('--reason <r>', 'Razón obligatoria')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduCancel(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('assign <id>')
+  .description('Asigna la HDU a un dev (Tech Lead).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--to <email>', 'Email del dev asignado (obligatorio)')
+  .option('--by <email>', 'Email del Tech Lead que asigna')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduAssign(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('claim <id>')
+  .description('Auto-asignación del dev (atajo de assign).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--user <email>', 'Email del dev (obligatorio)')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduClaim(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('next')
+  .description('Sugiere la próxima HDU para el dev (scoring).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--user <email>', 'Email del dev')
+  .option('--explain', 'Muestra breakdown del score', false)
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runHduNext(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('index')
+  .description('Regenera el _index.yml derivado.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runHduIndexCmd(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
 program
@@ -262,6 +418,18 @@ clientCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runClientList({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('stats')
+  .description('Métricas de HDUs del cliente (lead time, throughput, mix dev_type).')
+  .option('--client <slug>', 'Slug del cliente (obligatorio)')
+  .option('--period <p>', 'Período (Nd o "all"). Default 30d.', '30d')
+  .option('--by <axis>', 'Agregar por dev|app|dev_type')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runStats(opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

@@ -29,6 +29,9 @@ export * from './types/catalog.js';
 // ContextRepo (S2-3 / B.1 Apéndice) — marcador del context repo + auditoría.
 export * from './types/context-repo.js';
 
+// HDU (S5-1, S5-5 / B.5-B.7 Apéndice) — historias + transitions log.
+export * from './types/hdu.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

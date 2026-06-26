@@ -1279,6 +1279,248 @@ declare function loadContextRepoMarker(repoRoot: string): ContextRepoMarker | nu
 declare function saveContextRepoMarker(repoRoot: string, marker: ContextRepoMarker): void;
 
 /**
+ * Schema de HDUs (S5-1) y log de transiciones (S5-5).
+ *
+ * Las HDUs viven en `<cliente>-devflow-context/hdus/` (decisión H-1 del
+ * rediseño). Una HDU es un archivo markdown con frontmatter YAML
+ * estructurado + cuerpo en prosa libre.
+ *
+ * Apéndice B.5, B.6, B.7 del doc rediseño.
+ *
+ * El log de transiciones es append-only (.jsonl). Cada cambio de status
+ * genera una línea con timestamp. Es event-sourcing puro — `dd-cli stats`
+ * deriva todas las métricas desde acá. Forward-compat con la app web
+ * futura: misma estructura, sin migración.
+ */
+
+declare const HDU_STATUSES: readonly ["draft", "approved", "in-progress", "in-review", "done", "cancelled"];
+type HduStatus = (typeof HDU_STATUSES)[number];
+declare const HDU_PRIORITIES: readonly ["baja", "media", "alta", "crítica"];
+type HduPriority = (typeof HDU_PRIORITIES)[number];
+declare const HduFrontmatterSchema: z.ZodObject<{
+    id: z.ZodString;
+    title: z.ZodString;
+    status: z.ZodDefault<z.ZodEnum<["draft", "approved", "in-progress", "in-review", "done", "cancelled"]>>;
+    dev_type: z.ZodOptional<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>>;
+    dev_type_locked: z.ZodDefault<z.ZodBoolean>;
+    dev_type_source: z.ZodOptional<z.ZodString>;
+    priority: z.ZodDefault<z.ZodEnum<["baja", "media", "alta", "crítica"]>>;
+    apps_affected: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    assigned_to: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    created_by: z.ZodOptional<z.ZodString>;
+    created_at: z.ZodString;
+    approved_by: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    approved_at: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    sprint: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    lead_time_estimated_days: z.ZodDefault<z.ZodNullable<z.ZodNumber>>;
+    references: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    tags: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+}, "strip", z.ZodTypeAny, {
+    status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+    id: string;
+    dev_type_locked: boolean;
+    apps_affected: string[];
+    tags: string[];
+    title: string;
+    priority: "baja" | "media" | "alta" | "crítica";
+    assigned_to: string | null;
+    created_at: string;
+    approved_by: string | null;
+    approved_at: string | null;
+    sprint: string | null;
+    lead_time_estimated_days: number | null;
+    references: string[];
+    dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    dev_type_source?: string | undefined;
+    created_by?: string | undefined;
+}, {
+    id: string;
+    title: string;
+    created_at: string;
+    status?: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled" | undefined;
+    dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    dev_type_source?: string | undefined;
+    dev_type_locked?: boolean | undefined;
+    apps_affected?: string[] | undefined;
+    tags?: string[] | undefined;
+    priority?: "baja" | "media" | "alta" | "crítica" | undefined;
+    assigned_to?: string | null | undefined;
+    created_by?: string | undefined;
+    approved_by?: string | null | undefined;
+    approved_at?: string | null | undefined;
+    sprint?: string | null | undefined;
+    lead_time_estimated_days?: number | null | undefined;
+    references?: string[] | undefined;
+}>;
+type HduFrontmatter = z.infer<typeof HduFrontmatterSchema>;
+interface Hdu {
+    frontmatter: HduFrontmatter;
+    body: string;
+    filename: string;
+}
+declare const HduTransitionSchema: z.ZodObject<{
+    ts: z.ZodString;
+    hdu: z.ZodString;
+    from: z.ZodNullable<z.ZodEnum<["draft", "approved", "in-progress", "in-review", "done", "cancelled"]>>;
+    to: z.ZodEnum<["draft", "approved", "in-progress", "in-review", "done", "cancelled"]>;
+    by: z.ZodString;
+    reason: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    via: z.ZodDefault<z.ZodEnum<["cli", "pr-merge", "ci-job", "direct-commit"]>>;
+}, "strip", z.ZodTypeAny, {
+    reason: string | null;
+    ts: string;
+    hdu: string;
+    from: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled" | null;
+    to: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+    by: string;
+    via: "cli" | "pr-merge" | "ci-job" | "direct-commit";
+}, {
+    ts: string;
+    hdu: string;
+    from: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled" | null;
+    to: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+    by: string;
+    reason?: string | null | undefined;
+    via?: "cli" | "pr-merge" | "ci-job" | "direct-commit" | undefined;
+}>;
+type HduTransition = z.infer<typeof HduTransitionSchema>;
+declare const HduIndexEntrySchema: z.ZodObject<{
+    id: z.ZodString;
+    title: z.ZodString;
+    status: z.ZodEnum<["draft", "approved", "in-progress", "in-review", "done", "cancelled"]>;
+    dev_type: z.ZodOptional<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>>;
+    priority: z.ZodEnum<["baja", "media", "alta", "crítica"]>;
+    apps_affected: z.ZodArray<z.ZodString, "many">;
+    assigned_to: z.ZodNullable<z.ZodString>;
+    sprint: z.ZodNullable<z.ZodString>;
+    created_at: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+    id: string;
+    apps_affected: string[];
+    title: string;
+    priority: "baja" | "media" | "alta" | "crítica";
+    assigned_to: string | null;
+    created_at: string;
+    sprint: string | null;
+    dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+}, {
+    status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+    id: string;
+    apps_affected: string[];
+    title: string;
+    priority: "baja" | "media" | "alta" | "crítica";
+    assigned_to: string | null;
+    created_at: string;
+    sprint: string | null;
+    dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+}>;
+type HduIndexEntry = z.infer<typeof HduIndexEntrySchema>;
+declare const HduIndexSchema: z.ZodObject<{
+    schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
+    generated_at: z.ZodString;
+    next_hdu_id: z.ZodDefault<z.ZodNumber>;
+    hdus: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        title: z.ZodString;
+        status: z.ZodEnum<["draft", "approved", "in-progress", "in-review", "done", "cancelled"]>;
+        dev_type: z.ZodOptional<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>>;
+        priority: z.ZodEnum<["baja", "media", "alta", "crítica"]>;
+        apps_affected: z.ZodArray<z.ZodString, "many">;
+        assigned_to: z.ZodNullable<z.ZodString>;
+        sprint: z.ZodNullable<z.ZodString>;
+        created_at: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+        id: string;
+        apps_affected: string[];
+        title: string;
+        priority: "baja" | "media" | "alta" | "crítica";
+        assigned_to: string | null;
+        created_at: string;
+        sprint: string | null;
+        dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    }, {
+        status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+        id: string;
+        apps_affected: string[];
+        title: string;
+        priority: "baja" | "media" | "alta" | "crítica";
+        assigned_to: string | null;
+        created_at: string;
+        sprint: string | null;
+        dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    schema_version: "1.0";
+    generated_at: string;
+    next_hdu_id: number;
+    hdus: {
+        status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+        id: string;
+        apps_affected: string[];
+        title: string;
+        priority: "baja" | "media" | "alta" | "crítica";
+        assigned_to: string | null;
+        created_at: string;
+        sprint: string | null;
+        dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    }[];
+}, {
+    generated_at: string;
+    schema_version?: "1.0" | undefined;
+    next_hdu_id?: number | undefined;
+    hdus?: {
+        status: "done" | "draft" | "approved" | "in-progress" | "in-review" | "cancelled";
+        id: string;
+        apps_affected: string[];
+        title: string;
+        priority: "baja" | "media" | "alta" | "crítica";
+        assigned_to: string | null;
+        created_at: string;
+        sprint: string | null;
+        dev_type?: "greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa" | undefined;
+    }[] | undefined;
+}>;
+type HduIndex = z.infer<typeof HduIndexSchema>;
+declare function getHdusDir(contextRepoRoot: string): string;
+declare function getHduTransitionsPath(contextRepoRoot: string): string;
+declare function getHduIndexPath(contextRepoRoot: string): string;
+declare function getHduFilePath(contextRepoRoot: string, id: string, slug: string): string;
+/**
+ * Parsea un archivo HDU (frontmatter YAML + body markdown).
+ * Tira con mensaje claro si el frontmatter no valida.
+ */
+declare function parseHduFile(content: string, filename: string): Hdu;
+declare function serializeHdu(hdu: Hdu): string;
+declare function loadHdu(contextRepoRoot: string, filename: string): Hdu;
+declare function saveHdu(contextRepoRoot: string, hdu: Hdu): void;
+/**
+ * Lista todas las HDUs del context repo. Ignora _index.yml, _transitions.jsonl
+ * y cualquier otro archivo que empiece con `_`.
+ */
+declare function listHdus(contextRepoRoot: string): Hdu[];
+/**
+ * Append-only — nunca reescribir el archivo histórico. Cada llamada
+ * agrega una línea nueva.
+ */
+declare function appendTransition(contextRepoRoot: string, transition: HduTransition): void;
+/**
+ * Lee todas las transiciones del log.
+ * Útil para `dd-cli stats` y para reconstruir el historial de una HDU.
+ */
+declare function readTransitions(contextRepoRoot: string): HduTransition[];
+declare function loadHduIndex(contextRepoRoot: string): HduIndex;
+declare function saveHduIndex(contextRepoRoot: string, index: HduIndex): void;
+/**
+ * Regenera el index desde los archivos HDU. Idempotente.
+ * Calcula `next_hdu_id` = max(HDU-N existentes) + 1.
+ */
+declare function regenerateHduIndex(contextRepoRoot: string): HduIndex;
+declare function canHduTransitionTo(from: HduStatus, to: HduStatus): boolean;
+declare function legalNextStatuses(from: HduStatus): HduStatus[];
+
+/**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
  * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
@@ -1543,4 +1785,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION: string;
 
-export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, canTransitionTo, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadContextRepoMarker, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveSession, saveStackConfig, suggestedCommandFor, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, HDU_PRIORITIES, HDU_STATUSES, type Hdu, type HduFrontmatter, HduFrontmatterSchema, type HduIndex, type HduIndexEntry, HduIndexEntrySchema, HduIndexSchema, type HduPriority, type HduStatus, type HduTransition, HduTransitionSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, appendTransition, canHduTransitionTo, canTransitionTo, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHduFilePath, getHduIndexPath, getHduTransitionsPath, getHdusDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, legalNextStatuses, listHdus, loadCatalog, loadContextRepoMarker, loadHdu, loadHduIndex, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseHduFile, parseMarkdownCatalog, partition, readClientState, readTransitions, recordCommandResult, regenerateHduIndex, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveHdu, saveHduIndex, saveSession, saveStackConfig, serializeHdu, suggestedCommandFor, suggestedNextStep, updateClientState, writeClientState };

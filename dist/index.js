@@ -1,6 +1,6 @@
 // src/index.ts
-import { readFileSync as readFileSync9 } from "fs";
-import * as path10 from "path";
+import { readFileSync as readFileSync10 } from "fs";
+import * as path11 from "path";
 import { fileURLToPath } from "url";
 
 // src/types/dev-type.ts
@@ -1192,6 +1192,206 @@ function saveContextRepoMarker(repoRoot, marker) {
   writeFileSync7(getContextRepoMarkerPath(repoRoot), yamlStr, "utf-8");
 }
 
+// src/types/hdu.ts
+import { z as z8 } from "zod";
+import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync9, writeFileSync as writeFileSync8, appendFileSync, readdirSync } from "fs";
+import * as path10 from "path";
+import * as yaml6 from "js-yaml";
+var HDU_STATUSES = ["draft", "approved", "in-progress", "in-review", "done", "cancelled"];
+var HDU_PRIORITIES = ["baja", "media", "alta", "cr\xEDtica"];
+var HduFrontmatterSchema = z8.object({
+  id: z8.string().regex(/^HDU-(\d+|LOCAL-[a-z0-9-]+)$/, "Debe ser HDU-NNN o HDU-LOCAL-<slug>"),
+  title: z8.string().min(1),
+  status: z8.enum(HDU_STATUSES).default("draft"),
+  dev_type: z8.enum(DEV_TYPES).optional(),
+  dev_type_locked: z8.boolean().default(false),
+  dev_type_source: z8.string().optional(),
+  priority: z8.enum(HDU_PRIORITIES).default("media"),
+  apps_affected: z8.array(z8.string()).default([]),
+  assigned_to: z8.string().email().nullable().default(null),
+  created_by: z8.string().email().optional(),
+  created_at: z8.string(),
+  approved_by: z8.string().email().nullable().default(null),
+  approved_at: z8.string().nullable().default(null),
+  sprint: z8.string().nullable().default(null),
+  lead_time_estimated_days: z8.number().int().min(0).nullable().default(null),
+  references: z8.array(z8.string()).default([]),
+  // ej: HDU-123 (HDU previa cancelled)
+  tags: z8.array(z8.string()).default([])
+});
+var HduTransitionSchema = z8.object({
+  ts: z8.string(),
+  hdu: z8.string(),
+  from: z8.enum(HDU_STATUSES).nullable(),
+  to: z8.enum(HDU_STATUSES),
+  by: z8.string(),
+  // email del actor o "system" para CI jobs
+  reason: z8.string().nullable().default(null),
+  via: z8.enum(["cli", "pr-merge", "ci-job", "direct-commit"]).default("cli")
+});
+var HduIndexEntrySchema = z8.object({
+  id: z8.string(),
+  title: z8.string(),
+  status: z8.enum(HDU_STATUSES),
+  dev_type: z8.enum(DEV_TYPES).optional(),
+  priority: z8.enum(HDU_PRIORITIES),
+  apps_affected: z8.array(z8.string()),
+  assigned_to: z8.string().email().nullable(),
+  sprint: z8.string().nullable(),
+  created_at: z8.string()
+});
+var HduIndexSchema = z8.object({
+  schema_version: z8.literal("1.0").default("1.0"),
+  generated_at: z8.string(),
+  next_hdu_id: z8.number().int().min(1).default(1),
+  hdus: z8.array(HduIndexEntrySchema).default([])
+});
+var HDUS_DIR = "hdus";
+var TRANSITIONS_FILE = "_transitions.jsonl";
+var INDEX_FILE = "_index.yml";
+function getHdusDir(contextRepoRoot) {
+  return path10.join(contextRepoRoot, HDUS_DIR);
+}
+function getHduTransitionsPath(contextRepoRoot) {
+  return path10.join(getHdusDir(contextRepoRoot), TRANSITIONS_FILE);
+}
+function getHduIndexPath(contextRepoRoot) {
+  return path10.join(getHdusDir(contextRepoRoot), INDEX_FILE);
+}
+function getHduFilePath(contextRepoRoot, id, slug) {
+  return path10.join(getHdusDir(contextRepoRoot), `${id}-${slug}.md`);
+}
+function parseHduFile(content, filename) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) {
+    throw new Error(`HDU "${filename}" no tiene frontmatter YAML v\xE1lido.`);
+  }
+  const fmRaw = yaml6.load(match[1] ?? "");
+  const result = HduFrontmatterSchema.safeParse(fmRaw);
+  if (!result.success) {
+    throw new Error(`Frontmatter inv\xE1lido en "${filename}":
+${result.error.message}`);
+  }
+  return {
+    frontmatter: result.data,
+    body: match[2] ?? "",
+    filename
+  };
+}
+function serializeHdu(hdu) {
+  const fm = HduFrontmatterSchema.parse(hdu.frontmatter);
+  const yamlStr = yaml6.dump(fm, { indent: 2, lineWidth: 120 });
+  return `---
+${yamlStr}---
+${hdu.body}`;
+}
+function loadHdu(contextRepoRoot, filename) {
+  const fullPath = path10.join(getHdusDir(contextRepoRoot), filename);
+  const content = readFileSync9(fullPath, "utf-8");
+  return parseHduFile(content, filename);
+}
+function saveHdu(contextRepoRoot, hdu) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const content = serializeHdu(hdu);
+  writeFileSync8(path10.join(dir, hdu.filename), content, "utf-8");
+}
+function listHdus(contextRepoRoot) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) return [];
+  const files = readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_"));
+  return files.map((f) => {
+    try {
+      return loadHdu(contextRepoRoot, f);
+    } catch {
+      return null;
+    }
+  }).filter((h) => h !== null);
+}
+function appendTransition(contextRepoRoot, transition) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const validated = HduTransitionSchema.parse(transition);
+  const line = JSON.stringify(validated) + "\n";
+  appendFileSync(getHduTransitionsPath(contextRepoRoot), line, "utf-8");
+}
+function readTransitions(contextRepoRoot) {
+  const p = getHduTransitionsPath(contextRepoRoot);
+  if (!existsSync11(p)) return [];
+  return readFileSync9(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+    try {
+      return HduTransitionSchema.parse(JSON.parse(l));
+    } catch {
+      return null;
+    }
+  }).filter((t) => t !== null);
+}
+function loadHduIndex(contextRepoRoot) {
+  const p = getHduIndexPath(contextRepoRoot);
+  if (!existsSync11(p)) {
+    return HduIndexSchema.parse({
+      generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      hdus: []
+    });
+  }
+  const raw = readFileSync9(p, "utf-8");
+  const parsed = yaml6.load(raw);
+  const result = HduIndexSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`_index.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveHduIndex(contextRepoRoot, index) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const validated = HduIndexSchema.parse(index);
+  writeFileSync8(getHduIndexPath(contextRepoRoot), yaml6.dump(validated, { indent: 2 }), "utf-8");
+}
+function regenerateHduIndex(contextRepoRoot) {
+  const hdus = listHdus(contextRepoRoot);
+  const ids = hdus.map((h) => h.frontmatter.id.match(/^HDU-(\d+)/)).filter((m) => m !== null).map((m) => Number.parseInt(m[1] ?? "0", 10));
+  const nextHduId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+  const index = {
+    schema_version: "1.0",
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    next_hdu_id: nextHduId,
+    hdus: hdus.map((h) => HduIndexEntrySchema.parse({
+      id: h.frontmatter.id,
+      title: h.frontmatter.title,
+      status: h.frontmatter.status,
+      dev_type: h.frontmatter.dev_type,
+      priority: h.frontmatter.priority,
+      apps_affected: h.frontmatter.apps_affected,
+      assigned_to: h.frontmatter.assigned_to,
+      sprint: h.frontmatter.sprint,
+      created_at: h.frontmatter.created_at
+    }))
+  };
+  saveHduIndex(contextRepoRoot, index);
+  return index;
+}
+var HDU_TRANSITIONS = {
+  "draft": ["approved", "cancelled"],
+  "approved": ["in-progress", "cancelled", "draft"],
+  // rollback a draft posible
+  "in-progress": ["in-review", "approved", "cancelled"],
+  // pausar = approved nuevamente
+  "in-review": ["done", "in-progress", "cancelled"],
+  // rechazar = volver a in-progress
+  "done": [],
+  // terminal
+  "cancelled": []
+  // terminal
+};
+function canHduTransitionTo(from, to) {
+  return HDU_TRANSITIONS[from]?.includes(to) ?? false;
+}
+function legalNextStatuses(from) {
+  return [...HDU_TRANSITIONS[from] ?? []];
+}
+
 // src/providers/types.ts
 var ProviderError = class extends Error {
   constructor(message, cause) {
@@ -1700,15 +1900,15 @@ function defaultBaseUrlFor(type, raw) {
 // src/index.ts
 function readPkgVersion() {
   try {
-    const here = path10.dirname(fileURLToPath(import.meta.url));
+    const here = path11.dirname(fileURLToPath(import.meta.url));
     const candidates = [
-      path10.resolve(here, "../package.json"),
-      path10.resolve(here, "../../package.json"),
-      path10.resolve(here, "../../../package.json")
+      path11.resolve(here, "../package.json"),
+      path11.resolve(here, "../../package.json"),
+      path11.resolve(here, "../../../package.json")
     ];
     for (const c of candidates) {
       try {
-        const pkg = JSON.parse(readFileSync9(c, "utf-8"));
+        const pkg = JSON.parse(readFileSync10(c, "utf-8"));
         if (typeof pkg.version === "string") return pkg.version;
       } catch {
       }
@@ -1736,6 +1936,12 @@ export {
   FlowStateSchema,
   GitHubProvider,
   GitLabProvider,
+  HDU_PRIORITIES,
+  HDU_STATUSES,
+  HduFrontmatterSchema,
+  HduIndexEntrySchema,
+  HduIndexSchema,
+  HduTransitionSchema,
   NamingSchema,
   NotImplementedError,
   PROVIDERS,
@@ -1747,6 +1953,8 @@ export {
   StackDevflowSchema,
   StackInfraSchema,
   StackTemplatesSchema,
+  appendTransition,
+  canHduTransitionTo,
   canTransitionTo,
   createInitialSession,
   createProvider,
@@ -1767,6 +1975,10 @@ export {
   getClientStatePath,
   getContextRepoMarkerPath,
   getDevflowDir,
+  getHduFilePath,
+  getHduIndexPath,
+  getHduTransitionsPath,
+  getHdusDir,
   getHeartbeatLogPath,
   getProjectClaudeDir,
   getProjectClaudeSettingsPath,
@@ -1786,24 +1998,34 @@ export {
   isJsonMode,
   jsonError,
   jsonSuccess,
+  legalNextStatuses,
+  listHdus,
   loadCatalog,
   loadContextRepoMarker,
+  loadHdu,
+  loadHduIndex,
   loadSession,
   loadStackConfig,
   looksLikeLegacyMasterConfig,
   nextNaturalState,
+  parseHduFile,
   parseMarkdownCatalog,
   partition,
   readClientState,
+  readTransitions,
   recordCommandResult,
+  regenerateHduIndex,
   renderCatalogMarkdown,
   requiresBaseline,
   requiresRepoContext,
   rulesForDevType,
   saveCatalog,
   saveContextRepoMarker,
+  saveHdu,
+  saveHduIndex,
   saveSession,
   saveStackConfig,
+  serializeHdu,
   suggestedCommandFor,
   suggestedNextStep,
   updateClientState,
