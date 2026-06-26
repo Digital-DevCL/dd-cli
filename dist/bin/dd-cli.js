@@ -7668,23 +7668,37 @@ async function runHduNew(title, opts = {}) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const apps = opts.app ? [opts.app] : [];
   const devType = DEV_TYPES.includes(opts.devType ?? "") ? opts.devType : void 0;
+  if (opts.direct && !opts.reason) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "--direct requiere --reason expl\xEDcito para audit trail.",
+      recovery_hints: ['Ejemplo: --direct --reason="hotfix prod incidente #123"']
+    };
+    if (jsonMode) emitJson(jsonError({ command: "hdu new", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const initialStatus = opts.direct ? "approved" : "draft";
+  const createdBy = opts.createdBy ?? "unknown@local";
+  const directReason = opts.direct ? opts.reason : null;
   const hdu = {
     filename,
     frontmatter: HduFrontmatterSchema.parse({
       id: nextId,
       title,
-      status: "draft",
+      status: initialStatus,
       dev_type: devType,
-      dev_type_locked: false,
+      dev_type_locked: opts.direct ?? false,
+      dev_type_source: opts.direct ? "direct-commit" : void 0,
       priority: opts.priority ?? "media",
       apps_affected: apps,
       assigned_to: opts.assignedTo ?? null,
-      created_by: opts.createdBy ?? "unknown@local",
+      created_by: createdBy,
       created_at: now,
-      approved_by: null,
-      approved_at: null,
+      approved_by: opts.direct ? createdBy : null,
+      approved_at: opts.direct ? now : null,
       sprint: null,
-      tags: []
+      tags: opts.direct ? ["direct-commit"] : []
     }),
     body: `## Como
 (perfil del usuario)
@@ -7703,15 +7717,27 @@ async function runHduNew(title, opts = {}) {
 `
   };
   saveHdu(cacheDir, hdu);
-  appendTransition(cacheDir, {
-    ts: now,
-    hdu: nextId,
-    from: null,
-    to: "draft",
-    by: opts.createdBy ?? "unknown@local",
-    reason: "created",
-    via: "cli"
-  });
+  if (opts.direct) {
+    appendTransition(cacheDir, {
+      ts: now,
+      hdu: nextId,
+      from: null,
+      to: "approved",
+      by: createdBy,
+      reason: directReason,
+      via: "direct-commit"
+    });
+  } else {
+    appendTransition(cacheDir, {
+      ts: now,
+      hdu: nextId,
+      from: null,
+      to: "draft",
+      by: createdBy,
+      reason: "created",
+      via: "cli"
+    });
+  }
   regenerateHduIndex(cacheDir);
   if (jsonMode) {
     emitJson(jsonSuccess("hdu new", {
@@ -7976,6 +8002,64 @@ async function runHduAssign(hduId, opts) {
 }
 async function runHduClaim(hduId, opts) {
   return runHduAssign(hduId, { ...opts, to: opts.user });
+}
+async function runHduPin(hduId, opts) {
+  const jsonMode = isJsonMode(opts);
+  if (!hduId || !opts.client || !opts.to || !opts.by || !opts.reason) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: 'Uso: dd-cli hdu pin <HDU-id> --client=<slug> --to=<email> --by=<email-tl> --reason="..."',
+      recovery_hints: [
+        "--reason es obligatorio: el pin sobreescribe el scoring y queda en audit"
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "hdu pin", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const r = resolveCacheDir(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: "hdu pin", ...r.error }));
+    printErr(r.error.message);
+    return 2;
+  }
+  const hdus = listHdus(r.cacheDir);
+  const hdu = hdus.find((h) => h.frontmatter.id === hduId);
+  if (!hdu) {
+    const e = { code: "HDU_NOT_FOUND", message: `HDU "${hduId}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: "hdu pin", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const previous = hdu.frontmatter.assigned_to;
+  hdu.frontmatter.assigned_to = opts.to;
+  if (!hdu.frontmatter.tags.includes("pinned-by-tl")) {
+    hdu.frontmatter.tags.push("pinned-by-tl");
+  }
+  saveHdu(r.cacheDir, hdu);
+  appendTransition(r.cacheDir, {
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    hdu: hduId,
+    from: hdu.frontmatter.status,
+    to: hdu.frontmatter.status,
+    // mismo estado, lo importante es el reason
+    by: opts.by,
+    reason: `pinned to ${opts.to}: ${opts.reason}${previous ? ` (era ${previous})` : ""}`,
+    via: "cli"
+  });
+  regenerateHduIndex(r.cacheDir);
+  if (jsonMode) {
+    emitJson(jsonSuccess("hdu pin", {
+      id: hduId,
+      previous_assignee: previous,
+      pinned_to: opts.to,
+      by: opts.by,
+      reason: opts.reason
+    }));
+  }
+  printOk(`${hduId} pinneada a ${opts.to} por ${opts.by}${previous ? ` (antes: ${previous})` : ""}`);
+  printDim(`  raz\xF3n: ${opts.reason}`);
+  return 0;
 }
 async function runHduIndexCmd(opts = {}) {
   const jsonMode = isJsonMode(opts);
@@ -9175,7 +9259,7 @@ program.command("new-hdu <title>").alias("new-feature").description("[DEPRECATED
   }
 });
 var hduCmd = program.command("hdu").description("Gesti\xF3n de HDUs en el context repo del cliente (Sprint 5).");
-hduCmd.command("new <title>").description("Crea una HDU draft. Requiere --client=<slug>.").option("--client <slug>", "Slug del cliente cuyo context repo aloja la HDU").option("--app <slug>", "App afectada (apps_affected)").option("--priority <p>", "baja | media | alta | cr\xEDtica", "media").option("--dev-type <type>", "dev_type sugerido").option("--created-by <email>", "Email del PMO/creador").option("--assigned-to <email>", "Email del dev asignado (opcional)").option("--json", "Output JSON", false).action(async (title, opts) => {
+hduCmd.command("new <title>").description("Crea una HDU draft. Requiere --client=<slug>.").option("--client <slug>", "Slug del cliente cuyo context repo aloja la HDU").option("--app <slug>", "App afectada (apps_affected)").option("--priority <p>", "baja | media | alta | cr\xEDtica", "media").option("--dev-type <type>", "dev_type sugerido").option("--created-by <email>", "Email del PMO/creador").option("--assigned-to <email>", "Email del dev asignado (opcional)").option("--direct", "S7-7: crear directamente como approved (hotfix). Requiere --reason.", false).option("--reason <r>", "Raz\xF3n obligatoria si se usa --direct").option("--json", "Output JSON", false).action(async (title, opts) => {
   try {
     process.exit(await runHduNew(title, opts));
   } catch (e) {
@@ -9250,6 +9334,14 @@ hduCmd.command("assign <id>").description("Asigna la HDU a un dev (Tech Lead).")
 hduCmd.command("claim <id>").description("Auto-asignaci\xF3n del dev (atajo de assign).").option("--client <slug>", "Slug del cliente").option("--user <email>", "Email del dev (obligatorio)").option("--json", "Output JSON", false).action(async (id, opts) => {
   try {
     process.exit(await runHduClaim(id, opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+hduCmd.command("pin <id>").description("S7-7: Tech Lead pinnea HDU a un dev sobreescribiendo el scoring. Requiere --reason.").option("--client <slug>", "Slug del cliente").option("--to <email>", "Email del dev pinneado (obligatorio)").option("--by <email>", "Email del Tech Lead que pinnea (obligatorio)").option("--reason <r>", "Raz\xF3n del pin (obligatoria \u2014 queda en audit)").option("--json", "Output JSON", false).action(async (id, opts) => {
+  try {
+    process.exit(await runHduPin(id, opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

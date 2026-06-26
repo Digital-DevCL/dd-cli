@@ -38,7 +38,7 @@ import { runErrorCodes } from '../commands/error-codes-cmd.js';
 import {
   runHduNew, runHduList, runHduShow,
   runHduStart, runHduReview, runHduApprove, runHduClose, runHduCancel,
-  runHduAssign, runHduClaim, runHduIndexCmd,
+  runHduAssign, runHduClaim, runHduPin, runHduIndexCmd,
 } from '../commands/hdu-cmd.js';
 import { runHduNext } from '../commands/hdu-next.js';
 import { runHduApplyMerge } from '../commands/hdu-apply-merge.js';
@@ -216,6 +216,8 @@ hduCmd
   .option('--dev-type <type>', 'dev_type sugerido')
   .option('--created-by <email>', 'Email del PMO/creador')
   .option('--assigned-to <email>', 'Email del dev asignado (opcional)')
+  .option('--direct', 'S7-7: crear directamente como approved (hotfix). Requiere --reason.', false)
+  .option('--reason <r>', 'Razón obligatoria si se usa --direct')
   .option('--json', 'Output JSON', false)
   .action(async (title: string, opts: any) => {
     try { process.exit(await runHduNew(title, opts)); }
@@ -325,6 +327,19 @@ hduCmd
   .option('--json', 'Output JSON', false)
   .action(async (id: string, opts: any) => {
     try { process.exit(await runHduClaim(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
+  .command('pin <id>')
+  .description('S7-7: Tech Lead pinnea HDU a un dev sobreescribiendo el scoring. Requiere --reason.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--to <email>', 'Email del dev pinneado (obligatorio)')
+  .option('--by <email>', 'Email del Tech Lead que pinnea (obligatorio)')
+  .option('--reason <r>', 'Razón del pin (obligatoria — queda en audit)')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runHduPin(id, opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

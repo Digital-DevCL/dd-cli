@@ -89,6 +89,8 @@ export interface HduNewOpts extends HduCommandOpts {
   devType?: string;          // dev_type sugerido
   createdBy?: string;        // email
   assignedTo?: string;       // email
+  direct?: boolean;          // S7-7: si está, status=approved + via=direct-commit
+  reason?: string;            // requerido si --direct
 }
 
 export async function runHduNew(title: string, opts: HduNewOpts = {}): Promise<number> {
@@ -126,23 +128,41 @@ export async function runHduNew(title: string, opts: HduNewOpts = {}): Promise<n
   const apps = opts.app ? [opts.app] : [];
   const devType = (DEV_TYPES as readonly string[]).includes(opts.devType ?? '') ? opts.devType : undefined;
 
+  // S7-7: --direct requiere --reason explícito (audit trail) y crea directamente
+  // en 'approved' sin pasar por draft. Útil para hotfix donde no hay TL disponible.
+  if (opts.direct && !opts.reason) {
+    const e = {
+      code: 'INVALID_INPUT' as const,
+      message: '--direct requiere --reason explícito para audit trail.',
+      recovery_hints: ['Ejemplo: --direct --reason="hotfix prod incidente #123"'],
+    };
+    if (jsonMode) emitJson(jsonError({ command: 'hdu new', ...e }));
+    printErr(e.message);
+    return 3;
+  }
+
+  const initialStatus = opts.direct ? 'approved' : 'draft';
+  const createdBy = opts.createdBy ?? 'unknown@local';
+  const directReason = opts.direct ? opts.reason! : null;
+
   const hdu: Hdu = {
     filename,
     frontmatter: HduFrontmatterSchema.parse({
       id: nextId,
       title,
-      status: 'draft',
+      status: initialStatus,
       dev_type: devType,
-      dev_type_locked: false,
+      dev_type_locked: opts.direct ?? false,
+      dev_type_source: opts.direct ? 'direct-commit' : undefined,
       priority: opts.priority ?? 'media',
       apps_affected: apps,
       assigned_to: opts.assignedTo ?? null,
-      created_by: opts.createdBy ?? 'unknown@local',
+      created_by: createdBy,
       created_at: now,
-      approved_by: null,
-      approved_at: null,
+      approved_by: opts.direct ? createdBy : null,
+      approved_at: opts.direct ? now : null,
       sprint: null,
-      tags: [],
+      tags: opts.direct ? ['direct-commit'] : [],
     }),
     body: `## Como\n(perfil del usuario)\n\n## Quiero\n(qué funcionalidad)\n\n## Para\n(qué valor de negocio)\n\n## Criterios de aceptación\n- [ ] Dado X, cuando Y, entonces Z\n\n## Notas técnicas\n(contexto para el dev)\n`,
   };
@@ -150,15 +170,28 @@ export async function runHduNew(title: string, opts: HduNewOpts = {}): Promise<n
   saveHdu(cacheDir, hdu);
 
   // Append a transitions log
-  appendTransition(cacheDir, {
-    ts: now,
-    hdu: nextId,
-    from: null,
-    to: 'draft',
-    by: opts.createdBy ?? 'unknown@local',
-    reason: 'created',
-    via: 'cli',
-  });
+  if (opts.direct) {
+    // Una sola transición: null → approved
+    appendTransition(cacheDir, {
+      ts: now,
+      hdu: nextId,
+      from: null,
+      to: 'approved',
+      by: createdBy,
+      reason: directReason,
+      via: 'direct-commit',
+    });
+  } else {
+    appendTransition(cacheDir, {
+      ts: now,
+      hdu: nextId,
+      from: null,
+      to: 'draft',
+      by: createdBy,
+      reason: 'created',
+      via: 'cli',
+    });
+  }
 
   // Regenerar index
   regenerateHduIndex(cacheDir);
@@ -503,6 +536,86 @@ export interface HduClaimOpts extends HduCommandOpts {
 
 export async function runHduClaim(hduId: string, opts: HduClaimOpts): Promise<number> {
   return runHduAssign(hduId, { ...opts, to: opts.user });
+}
+
+// ── hdu pin ────────────────────────────────────────────────────────
+// S7-7: Tech Lead fuerza una asignación + sobreescribe el scoring de hdu next.
+// Reusa la lógica de assign pero agrega un tag `pinned-by-tl` y reason
+// obligatoria para audit. La skill /devflow-ia:hdu-board usa esto cuando
+// el TL quiere asignar fuera del orden recomendado por el scoring.
+
+export interface HduPinOpts extends HduCommandOpts {
+  to: string;             // email del dev pinneado
+  by: string;             // email del TL (obligatorio para audit)
+  reason: string;          // razón del pin
+}
+
+export async function runHduPin(hduId: string, opts: HduPinOpts): Promise<number> {
+  const jsonMode = isJsonMode(opts);
+
+  if (!hduId || !opts.client || !opts.to || !opts.by || !opts.reason) {
+    const e = {
+      code: 'INVALID_INPUT' as const,
+      message: 'Uso: dd-cli hdu pin <HDU-id> --client=<slug> --to=<email> --by=<email-tl> --reason="..."',
+      recovery_hints: [
+        '--reason es obligatorio: el pin sobreescribe el scoring y queda en audit',
+      ],
+    };
+    if (jsonMode) emitJson(jsonError({ command: 'hdu pin', ...e }));
+    printErr(e.message);
+    return 3;
+  }
+
+  const r = resolveCacheDir(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: 'hdu pin', ...r.error }));
+    printErr(r.error.message);
+    return 2;
+  }
+
+  const hdus = listHdus(r.cacheDir);
+  const hdu = hdus.find(h => h.frontmatter.id === hduId);
+  if (!hdu) {
+    const e = { code: 'HDU_NOT_FOUND' as const, message: `HDU "${hduId}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: 'hdu pin', ...e }));
+    printErr(e.message);
+    return 2;
+  }
+
+  const previous = hdu.frontmatter.assigned_to;
+  hdu.frontmatter.assigned_to = opts.to;
+  if (!hdu.frontmatter.tags.includes('pinned-by-tl')) {
+    hdu.frontmatter.tags.push('pinned-by-tl');
+  }
+  saveHdu(r.cacheDir, hdu);
+
+  // Pin queda en el transitions log con via:cli (no es transición de estado,
+  // pero el log de transitions también acepta reasignaciones para audit).
+  appendTransition(r.cacheDir, {
+    ts: new Date().toISOString(),
+    hdu: hduId,
+    from: hdu.frontmatter.status,
+    to: hdu.frontmatter.status,  // mismo estado, lo importante es el reason
+    by: opts.by,
+    reason: `pinned to ${opts.to}: ${opts.reason}${previous ? ` (era ${previous})` : ''}`,
+    via: 'cli',
+  });
+
+  regenerateHduIndex(r.cacheDir);
+
+  if (jsonMode) {
+    emitJson(jsonSuccess('hdu pin', {
+      id: hduId,
+      previous_assignee: previous,
+      pinned_to: opts.to,
+      by: opts.by,
+      reason: opts.reason,
+    }));
+  }
+
+  printOk(`${hduId} pinneada a ${opts.to} por ${opts.by}${previous ? ` (antes: ${previous})` : ''}`);
+  printDim(`  razón: ${opts.reason}`);
+  return 0;
 }
 
 // ── hdu index ──────────────────────────────────────────────────────
