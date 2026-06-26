@@ -42,6 +42,8 @@ import {
 import { runHduNext } from '../commands/hdu-next.js';
 import { runStats } from '../commands/stats-cmd.js';
 import { runGuide } from '../commands/guide-cmd.js';
+import { runToday } from '../commands/today-cmd.js';
+import { runInbox, runInboxAdd } from '../commands/inbox-cmd.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -419,6 +421,40 @@ clientCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runClientList({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Namespace `inbox` — eventos asincrónicos del dev (S6-8)
+const inboxCmd = program
+  .command('inbox')
+  .description('Eventos asincrónicos del dev (HDU asignada, MR mergeado, etc).')
+  .option('--read', 'Marca los listados como leídos', false)
+  .option('--all', 'Muestra leídos + no-leídos', false)
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runInbox(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+inboxCmd
+  .command('add')
+  .description('Agrega un evento al inbox (testing / scripts).')
+  .option('--kind <k>', 'Tipo del evento (obligatorio)')
+  .option('--client <slug>', 'Slug del cliente relacionado')
+  .option('--data <json>', 'JSON string con data adicional')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runInboxAdd(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('today')
+  .description('Ritual matutino del dev: sesión activa, queue de HDUs, alertas.')
+  .option('--user <email>', 'Email del dev (filtra HDUs asignadas a vos)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runToday(opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

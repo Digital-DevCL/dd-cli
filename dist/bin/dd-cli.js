@@ -8045,6 +8045,302 @@ async function runGuide(topic, opts = {}) {
   return 0;
 }
 
+// src/commands/today-cmd.ts
+import { existsSync as existsSync40 } from "fs";
+function ageInHours3(iso) {
+  if (!iso) return Infinity;
+  return (Date.now() - new Date(iso).getTime()) / 36e5;
+}
+async function runToday(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const user = opts.user ?? null;
+  const registry = loadRegistry();
+  let activeSession = null;
+  const projectRoot = findDevFlowProjectRoot();
+  if (projectRoot) {
+    try {
+      const session = loadSession(projectRoot);
+      if (session?.started_at && !session.ended_at) {
+        const startedMs = new Date(session.started_at).getTime();
+        const durationMin = Math.floor((Date.now() - startedMs) / 6e4);
+        activeSession = {
+          feature_id: session.feature_id ?? "unknown",
+          dev_type: session.dev_type ?? "unknown",
+          duration_minutes: durationMin,
+          cwd: projectRoot
+        };
+      }
+    } catch {
+    }
+  }
+  const queue = [];
+  for (const entry of Object.values(registry.clients)) {
+    const cacheDir = getClientCacheDir(entry.slug);
+    if (!existsSync40(cacheDir)) continue;
+    let hdus;
+    try {
+      hdus = listHdus(cacheDir);
+    } catch {
+      continue;
+    }
+    for (const h of hdus) {
+      const fm = h.frontmatter;
+      if (fm.status !== "approved") continue;
+      if (user && fm.assigned_to !== user) continue;
+      if (!user && fm.assigned_to) continue;
+      queue.push({
+        id: fm.id,
+        client: entry.slug,
+        title: fm.title,
+        priority: fm.priority,
+        dev_type: fm.dev_type ?? null,
+        apps_affected: fm.apps_affected
+      });
+    }
+  }
+  const priorityOrder = { "cr\xEDtica": 4, "alta": 3, "media": 2, "baja": 1 };
+  queue.sort((a, b) => (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0));
+  const alerts = [];
+  for (const entry of Object.values(registry.clients)) {
+    const lastSync = entry.last_synced;
+    if (ageInHours3(lastSync) > 7 * 24) {
+      alerts.push({
+        level: "warn",
+        message: `Contexto de ${entry.slug} stale (${Math.floor(ageInHours3(lastSync) / 24)}d sin sync)`,
+        action: `dd-cli pull-context ${entry.slug}`
+      });
+    }
+    if (user) {
+      const cacheDir = getClientCacheDir(entry.slug);
+      if (!existsSync40(cacheDir)) continue;
+      let hdus;
+      try {
+        hdus = listHdus(cacheDir);
+      } catch {
+        continue;
+      }
+      for (const h of hdus) {
+        if (h.frontmatter.status !== "in-progress") continue;
+        if (h.frontmatter.assigned_to !== user) continue;
+        alerts.push({
+          level: "info",
+          message: `${h.frontmatter.id} (${entry.slug}) en in-progress`,
+          action: `dd-cli hdu show ${h.frontmatter.id} --client=${entry.slug}`
+        });
+      }
+    }
+  }
+  const output = {
+    date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] ?? "",
+    user,
+    active_session: activeSession,
+    queue,
+    alerts
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("today", output));
+  }
+  console.log("");
+  console.log(`  ${bold("Today")}    ${dim((/* @__PURE__ */ new Date()).toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }))}`);
+  if (user) printDim(`  ${user}`);
+  console.log("");
+  if (activeSession) {
+    console.log(bold("  SESI\xD3N ACTIVA"));
+    const hrs = Math.floor(activeSession.duration_minutes / 60);
+    const mins = activeSession.duration_minutes % 60;
+    const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    console.log(`    ${devTypeBadge(activeSession.dev_type)} ${bold(activeSession.feature_id)}  ${dim("\xB7 " + durStr)}`);
+    printDim(`    cwd: ${activeSession.cwd}`);
+    console.log("");
+  } else if (projectRoot) {
+    printDim("  Sin sesi\xF3n activa en este repo (dd-cli start-session <HDU-id>)");
+    console.log("");
+  }
+  if (queue.length > 0) {
+    console.log(bold(`  TU QUEUE (${queue.length} HDUs aprobadas)`));
+    for (const h of queue.slice(0, 10)) {
+      const prio = h.priority.padEnd(8);
+      console.log(`    ${bold(h.id.padEnd(10))} ${prio} ${dim(h.client.padEnd(15))} ${h.title}`);
+    }
+    if (queue.length > 10) printDim(`    ... y ${queue.length - 10} m\xE1s`);
+    console.log("");
+  } else if (user) {
+    printDim("  Sin HDUs aprobadas asignadas a vos.");
+    printInfo("  Para ver el backlog: dd-cli hdu list --client=<slug> --status=approved");
+    console.log("");
+  }
+  if (alerts.length > 0) {
+    console.log(bold("  ALERTAS"));
+    for (const a of alerts) {
+      const icon = a.level === "warn" ? warn("\u26A0") : a.level === "err" ? warn("\u2717") : ok("\xB7");
+      console.log(`    ${icon} ${a.message}`);
+      if (a.action) printDim(`       \u2192 ${a.action}`);
+    }
+    console.log("");
+  }
+  return 0;
+}
+
+// src/commands/inbox-cmd.ts
+import { existsSync as existsSync41, mkdirSync as mkdirSync20, readFileSync as readFileSync24, appendFileSync as appendFileSync4, writeFileSync as writeFileSync17 } from "fs";
+import * as path33 from "path";
+import { z as z10 } from "zod";
+var InboxEventSchema = z10.object({
+  ts: z10.string(),
+  client: z10.string().optional(),
+  kind: z10.string(),
+  // hdu_assigned | mr_merged | context_updated | etc.
+  data: z10.record(z10.string(), z10.unknown()).default({}),
+  read: z10.boolean().default(false),
+  id: z10.string().optional()
+  // generado al append si no viene
+});
+function getInboxPath() {
+  return path33.join(getDevflowGlobalDir(), "inbox.jsonl");
+}
+function readInbox() {
+  const p = getInboxPath();
+  if (!existsSync41(p)) return [];
+  return readFileSync24(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+    try {
+      return InboxEventSchema.parse(JSON.parse(l));
+    } catch {
+      return null;
+    }
+  }).filter((e) => e !== null);
+}
+function writeInbox(events) {
+  const p = getInboxPath();
+  const dir = path33.dirname(p);
+  if (!existsSync41(dir)) mkdirSync20(dir, { recursive: true });
+  const content = events.map((e) => JSON.stringify(InboxEventSchema.parse(e))).join("\n") + "\n";
+  writeFileSync17(p, content, "utf-8");
+}
+function appendInboxEvent(event) {
+  const p = getInboxPath();
+  const dir = path33.dirname(p);
+  if (!existsSync41(dir)) mkdirSync20(dir, { recursive: true });
+  const full = InboxEventSchema.parse({
+    ts: event.ts ?? (/* @__PURE__ */ new Date()).toISOString(),
+    read: event.read ?? false,
+    ...event
+  });
+  appendFileSync4(p, JSON.stringify(full) + "\n", "utf-8");
+}
+function purgeOld(events) {
+  const retentionDays = Number(process.env.DEVFLOW_INBOX_RETENTION_DAYS ?? 30);
+  const cutoff = Date.now() - retentionDays * 864e5;
+  return events.filter((e) => !e.read || new Date(e.ts).getTime() >= cutoff);
+}
+function ageStr(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 6e4);
+  if (min < 60) return `hace ${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `hace ${hr}h`;
+  return `hace ${Math.floor(hr / 24)}d`;
+}
+async function runInbox(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  let events = readInbox();
+  const before = events.length;
+  events = purgeOld(events);
+  if (events.length < before) {
+    writeInbox(events);
+  }
+  const filtered = opts.all ? events : events.filter((e) => !e.read);
+  if (jsonMode) {
+    emitJson(jsonSuccess("inbox", {
+      total: events.length,
+      shown: filtered.length,
+      unread: events.filter((e) => !e.read).length,
+      events: filtered
+    }));
+  }
+  console.log("");
+  console.log(bold(`  \u{1F4EC} INBOX  (${filtered.length} ${opts.all ? "totales" : "sin leer"})`));
+  console.log("");
+  if (filtered.length === 0) {
+    printDim("  No hay eventos.");
+    return 0;
+  }
+  for (let i = 0; i < filtered.length; i++) {
+    const e = filtered[i];
+    const tag = e.read ? dim("\xB7 ") : ok("\u25CF ");
+    const kindStr = e.kind.padEnd(20);
+    const clientStr = (e.client ?? "-").padEnd(12);
+    console.log(`  ${tag}${ageStr(e.ts).padEnd(10)} ${dim(clientStr)} ${kindStr} ${formatEventData(e)}`);
+  }
+  if (opts.read) {
+    const filteredIds = new Set(filtered.map((e, i) => `${e.ts}#${i}`));
+    const updated = events.map((e, i) => {
+      const key = `${e.ts}#${i}`;
+      if (filteredIds.has(key)) {
+        return { ...e, read: true };
+      }
+      return e;
+    });
+    writeInbox(updated);
+    console.log("");
+    printOk(`  ${filtered.length} marcados como le\xEDdos`);
+  } else if (filtered.length > 0 && !opts.all) {
+    console.log("");
+    printDim("  Marcar como le\xEDdos: dd-cli inbox --read");
+  }
+  return 0;
+}
+function formatEventData(e) {
+  switch (e.kind) {
+    case "hdu_assigned": {
+      const hdu = e.data["hdu"] ?? "?";
+      const by = e.data["by"] ?? "?";
+      return `${hdu} (por ${by})`;
+    }
+    case "mr_merged": {
+      const hdu = e.data["hdu"] ?? "?";
+      const mr = e.data["mr"] ?? "?";
+      return `${hdu} (MR ${mr})`;
+    }
+    case "context_updated": {
+      const news = e.data["new_apps"] ?? [];
+      return news.length > 0 ? `+${news.length} apps nuevas` : "";
+    }
+    default:
+      try {
+        return JSON.stringify(e.data).slice(0, 60);
+      } catch {
+        return "";
+      }
+  }
+}
+async function runInboxAdd(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!opts.kind) {
+    const e = { code: "INVALID_INPUT", message: "Falta --kind. Uso: dd-cli inbox add --kind=<tipo> --client=<slug>" };
+    if (jsonMode) emitJson(jsonError({ command: "inbox add", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  let data = {};
+  if (opts.data) {
+    try {
+      data = JSON.parse(opts.data);
+    } catch {
+      const e = { code: "INVALID_INPUT", message: "--data debe ser JSON v\xE1lido." };
+      if (jsonMode) emitJson(jsonError({ command: "inbox add", ...e }));
+      printErr(e.message);
+      return 3;
+    }
+  }
+  appendInboxEvent({ kind: opts.kind, client: opts.client, data });
+  if (jsonMode) {
+    emitJson(jsonSuccess("inbox add", { kind: opts.kind, client: opts.client, data }));
+  }
+  printOk(`Evento agregado al inbox.`);
+  printInfo("Para ver: dd-cli inbox");
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -8295,6 +8591,30 @@ clientCmd.command("show <slug>").description("Dashboard del cliente: stack, apps
 clientCmd.command("list").description("Lista todos los clientes registrados con estado, apps y \xFAltimo sync.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
   try {
     process.exit(await runClientList({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+var inboxCmd = program.command("inbox").description("Eventos asincr\xF3nicos del dev (HDU asignada, MR mergeado, etc).").option("--read", "Marca los listados como le\xEDdos", false).option("--all", "Muestra le\xEDdos + no-le\xEDdos", false).option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runInbox(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+inboxCmd.command("add").description("Agrega un evento al inbox (testing / scripts).").option("--kind <k>", "Tipo del evento (obligatorio)").option("--client <slug>", "Slug del cliente relacionado").option("--data <json>", "JSON string con data adicional").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runInboxAdd(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("today").description("Ritual matutino del dev: sesi\xF3n activa, queue de HDUs, alertas.").option("--user <email>", "Email del dev (filtra HDUs asignadas a vos)").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runToday(opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
