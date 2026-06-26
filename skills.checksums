@@ -8,6 +8,7 @@
   "enrich-us.md": "0c360a97264bdf70573e95bc3aef19dbd9e32033229e8bfd068aa6195548c0ce",
   "explain-code.md": "d8fc7a4ad2eb4ab7a5363c67e548adc566bce72baa58cd2035244be542349169",
   "explore-repo.md": "bb79f2b88be93467e80dfd909cc35d17dbe70ef4ebe7c0f63db1ac06c11ac04b",
+  "hdu-board.md": "fdceaf54e5b728a92319511aecefd220d2091290660ee3b8e3fce8abd2a6aef6",
   "init-context.md": "38ce67bd8e2c7e3a7ea3b8d722665f57c490b212c02fc95a0d28df6f69a7924d",
   "init-repo-context.md": "f90976dfcccb4e6a8248d2e72e9773c4dfe1ae7bd8ce27163ee3c59de3e0a2f9",
   "map-service.md": "046e425c72b6cbb6c64e5694d358d4d5671cc37fb53538b262d6923e03b917f4",
@@ -19,6 +20,7 @@
   "opsx/propose.md": "4953d4d16c45f54e64bb6558a3d0195082fbc52c0ec710cc115f7e759416b9e4",
   "plan-sprint.md": "00b27c4a3cf787820d868b4efebe88802d74c738dea7cd6bbf7e20dfb617db9b",
   "release-check.md": "1907a6874537b347c160cabc79b046936354cd85c316280d026789e47da993a7",
+  "stats-review.md": "6270cb1915d0c5f52ecd4f4050062efd8df4f829920d54031d209d80a2b4d8f2",
   "trace-flow.md": "447d57eb6e27ec02de477c11ce441ccc88fc187cf9f03a4620e0d28d25fd94af",
   "troubleshoot.md": "5d7b2a56a586225d85a074438b2cac06119317f4fcdbb06c1ac57cd0bf2be0ae"
 }
