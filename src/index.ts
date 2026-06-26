@@ -32,6 +32,9 @@ export * from './types/context-repo.js';
 // HDU (S5-1, S5-5 / B.5-B.7 Apéndice) — historias + transitions log.
 export * from './types/hdu.js';
 
+// Telemetría local (S7-1 / R-5) — opt-in, append-only ~/.devflow/telemetry.jsonl
+export * from './utils/telemetry.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

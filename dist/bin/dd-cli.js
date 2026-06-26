@@ -8631,9 +8631,359 @@ async function runInboxAdd(opts = {}) {
   return 0;
 }
 
+// src/commands/telemetry-cmd.ts
+import { existsSync as existsSync45, statSync as statSync8, unlinkSync } from "fs";
+import { confirm as confirm5 } from "@inquirer/prompts";
+
+// src/utils/telemetry.ts
+import { existsSync as existsSync44, mkdirSync as mkdirSync22, readFileSync as readFileSync26, writeFileSync as writeFileSync19, appendFileSync as appendFileSync5, statSync as statSync7 } from "fs";
+import { createHash as createHash2 } from "crypto";
+import * as path36 from "path";
+import * as yaml10 from "js-yaml";
+import { z as z11 } from "zod";
+var TelemetryConfigSchema = z11.object({
+  enabled: z11.boolean().default(false),
+  scope: z11.literal("local").default("local"),
+  // futuro: 'remote' cuando exista plataforma
+  enabled_at: z11.string().nullable().default(null)
+});
+var TelemetryEventSchema = z11.object({
+  ts: z11.string(),
+  command: z11.string(),
+  exit_code: z11.number().int(),
+  duration_ms: z11.number().int().nonnegative(),
+  args: z11.record(z11.string(), z11.unknown()).optional(),
+  user_hash: z11.string().optional(),
+  // 8-char sha256 del email (si disponible)
+  client_slug: z11.string().optional(),
+  error_code: z11.string().optional()
+  // código del JSON error si hubo
+});
+function getTelemetryConfigPath() {
+  return path36.join(getDevflowGlobalDir(), "telemetry.config.yml");
+}
+function getTelemetryEventsPath() {
+  return path36.join(getDevflowGlobalDir(), "telemetry.jsonl");
+}
+function loadTelemetryConfig() {
+  const p = getTelemetryConfigPath();
+  if (!existsSync44(p)) {
+    return TelemetryConfigSchema.parse({});
+  }
+  try {
+    const raw = readFileSync26(p, "utf-8");
+    const parsed = yaml10.load(raw);
+    return TelemetryConfigSchema.parse(parsed);
+  } catch {
+    return TelemetryConfigSchema.parse({});
+  }
+}
+function saveTelemetryConfig(config) {
+  const p = getTelemetryConfigPath();
+  const dir = path36.dirname(p);
+  if (!existsSync44(dir)) mkdirSync22(dir, { recursive: true });
+  const validated = TelemetryConfigSchema.parse(config);
+  writeFileSync19(p, yaml10.dump(validated, { indent: 2 }), "utf-8");
+}
+function isTelemetryEnabled() {
+  return loadTelemetryConfig().enabled;
+}
+function hashUser(email) {
+  if (!email) return void 0;
+  return createHash2("sha256").update(email.toLowerCase().trim()).digest("hex").slice(0, 8);
+}
+var SECRET_PATTERNS = [
+  /^(git[-_]?token|token|secret|password|pwd|key|api[-_]?key|pat)$/i
+];
+function sanitizeArgs(args) {
+  if (!args) return void 0;
+  const safe = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (SECRET_PATTERNS.some((p) => p.test(k))) {
+      safe[k] = "[redacted]";
+    } else if (typeof v === "string" && (v.startsWith("glpat-") || v.startsWith("ghp_") || v.startsWith("github_pat_"))) {
+      safe[k] = "[redacted-token]";
+    } else if (typeof v === "string" && v.length > 100) {
+      safe[k] = v.slice(0, 80) + "...[truncated]";
+    } else {
+      safe[k] = v;
+    }
+  }
+  return safe;
+}
+function recordTelemetry(event) {
+  if (!isTelemetryEnabled()) return;
+  const p = getTelemetryEventsPath();
+  const dir = path36.dirname(p);
+  if (!existsSync44(dir)) mkdirSync22(dir, { recursive: true });
+  const full = TelemetryEventSchema.parse({
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    ...event,
+    args: sanitizeArgs(event.args)
+  });
+  try {
+    appendFileSync5(p, JSON.stringify(full) + "\n", "utf-8");
+  } catch {
+  }
+}
+function readTelemetryEvents() {
+  const p = getTelemetryEventsPath();
+  if (!existsSync44(p)) return [];
+  return readFileSync26(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+    try {
+      return TelemetryEventSchema.parse(JSON.parse(l));
+    } catch {
+      return null;
+    }
+  }).filter((e) => e !== null);
+}
+function computeTelemetryStats(events) {
+  const byCmd = {};
+  const byExit = {};
+  const byErr = {};
+  const byDay = {};
+  let totalDuration = 0;
+  for (const e of events) {
+    byCmd[e.command] = (byCmd[e.command] ?? 0) + 1;
+    byExit[String(e.exit_code)] = (byExit[String(e.exit_code)] ?? 0) + 1;
+    if (e.error_code) byErr[e.error_code] = (byErr[e.error_code] ?? 0) + 1;
+    const day = e.ts.split("T")[0] ?? "";
+    byDay[day] = (byDay[day] ?? 0) + 1;
+    totalDuration += e.duration_ms;
+  }
+  const sorted = [...events].sort((a, b) => a.ts.localeCompare(b.ts));
+  const oldest = sorted[0]?.ts ?? null;
+  const newest = sorted[sorted.length - 1]?.ts ?? null;
+  const p = getTelemetryEventsPath();
+  const fileSize = existsSync44(p) ? statSync7(p).size : 0;
+  return {
+    total_events: events.length,
+    by_command: byCmd,
+    by_exit_code: byExit,
+    by_error_code: byErr,
+    avg_duration_ms: events.length === 0 ? 0 : Math.round(totalDuration / events.length),
+    events_per_day: byDay,
+    active_days: Object.keys(byDay).length,
+    file_size_bytes: fileSize,
+    oldest_event: oldest,
+    newest_event: newest
+  };
+}
+
+// src/commands/telemetry-cmd.ts
+var isTTY12 = process.stdout.isTTY;
+async function runTelemetryEnable(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!opts.local) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "Telemetr\xEDa requiere flag expl\xEDcito --local para confirmar que NO se enviar\xE1 a ning\xFAn servidor.",
+      recovery_hints: [
+        "dd-cli telemetry enable --local",
+        "La telemetr\xEDa es 100% local. Vive en ~/.devflow/telemetry.jsonl"
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "telemetry enable", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  saveTelemetryConfig(TelemetryConfigSchema.parse({
+    enabled: true,
+    scope: "local",
+    enabled_at: (/* @__PURE__ */ new Date()).toISOString()
+  }));
+  if (jsonMode) {
+    emitJson(jsonSuccess("telemetry enable", { enabled: true, scope: "local" }));
+  }
+  printOk("Telemetr\xEDa local habilitada.");
+  printDim(`  Eventos en: ${getTelemetryEventsPath()}`);
+  printDim(`  Config en:  ${getTelemetryConfigPath()}`);
+  console.log("");
+  printInfo("Para desactivar: dd-cli telemetry disable");
+  printInfo("Para ver el reporte: dd-cli telemetry report");
+  return 0;
+}
+async function runTelemetryDisable(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  saveTelemetryConfig(TelemetryConfigSchema.parse({
+    enabled: false,
+    scope: "local",
+    enabled_at: null
+  }));
+  if (jsonMode) {
+    emitJson(jsonSuccess("telemetry disable", { enabled: false }));
+  }
+  printOk("Telemetr\xEDa deshabilitada. Los eventos existentes se preservan.");
+  printDim("  Para borrarlos: dd-cli telemetry purge");
+  return 0;
+}
+async function runTelemetryStatus(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const config = loadTelemetryConfig();
+  const eventsPath = getTelemetryEventsPath();
+  const eventsExists = existsSync45(eventsPath);
+  const fileSize = eventsExists ? statSync8(eventsPath).size : 0;
+  const events = eventsExists ? readTelemetryEvents() : [];
+  if (jsonMode) {
+    emitJson(jsonSuccess("telemetry status", {
+      enabled: config.enabled,
+      scope: config.scope,
+      enabled_at: config.enabled_at,
+      total_events: events.length,
+      file_size_bytes: fileSize,
+      events_path: eventsPath
+    }));
+  }
+  console.log("");
+  console.log(bold("  Telemetr\xEDa"));
+  console.log(`    estado:    ${config.enabled ? "\u{1F7E2} habilitada" : "\u26AA deshabilitada"}`);
+  console.log(`    scope:     ${config.scope}`);
+  if (config.enabled_at) console.log(`    desde:     ${config.enabled_at}`);
+  console.log(`    eventos:   ${events.length}`);
+  console.log(`    archivo:   ${fileSize > 0 ? `${(fileSize / 1024).toFixed(1)} KB` : "(vac\xEDo)"}`);
+  console.log("");
+  if (!config.enabled) {
+    printDim("  Para habilitar: dd-cli telemetry enable --local");
+  }
+  return 0;
+}
+async function runTelemetryReport(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const events = readTelemetryEvents();
+  const periodStr = opts.period ?? "30d";
+  let filtered = events;
+  if (periodStr !== "all") {
+    const match = periodStr.match(/^(\d+)d$/);
+    if (!match) {
+      const e = { code: "INVALID_INPUT", message: `--period=${periodStr} inv\xE1lido. Us\xE1 Nd o 'all'.` };
+      if (jsonMode) emitJson(jsonError({ command: "telemetry report", ...e }));
+      printErr(e.message);
+      return 3;
+    }
+    const cutoff = Date.now() - Number(match[1]) * 864e5;
+    filtered = events.filter((e) => new Date(e.ts).getTime() >= cutoff);
+  }
+  const stats = computeTelemetryStats(filtered);
+  if (jsonMode) {
+    emitJson(jsonSuccess("telemetry report", {
+      period: periodStr,
+      ...stats
+    }));
+  }
+  console.log("");
+  console.log(bold(`  Reporte de telemetr\xEDa (${periodStr})`));
+  console.log("");
+  if (stats.total_events === 0) {
+    printDim("  No hay eventos en el per\xEDodo.");
+    printDim("  \xBFLa telemetr\xEDa est\xE1 activa? dd-cli telemetry status");
+    return 0;
+  }
+  console.log(`  Eventos totales:   ${stats.total_events}`);
+  console.log(`  D\xEDas activos:      ${stats.active_days}`);
+  console.log(`  Avg duration:      ${stats.avg_duration_ms} ms`);
+  console.log(`  Archivo:           ${(stats.file_size_bytes / 1024).toFixed(1)} KB`);
+  console.log("");
+  console.log(bold("  Por comando"));
+  const sortedCmds = Object.entries(stats.by_command).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [cmd, count] of sortedCmds) {
+    console.log(`    ${cmd.padEnd(28)} ${count}`);
+  }
+  if (Object.keys(stats.by_command).length > 10) {
+    printDim(`    ... y ${Object.keys(stats.by_command).length - 10} comandos m\xE1s`);
+  }
+  console.log("");
+  console.log(bold("  Por exit code"));
+  for (const [code, count] of Object.entries(stats.by_exit_code).sort()) {
+    console.log(`    exit ${code}: ${count}`);
+  }
+  console.log("");
+  if (Object.keys(stats.by_error_code).length > 0) {
+    console.log(bold("  Errores por c\xF3digo (top 10)"));
+    const sortedErrs = Object.entries(stats.by_error_code).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    for (const [code, count] of sortedErrs) {
+      console.log(`    ${code.padEnd(28)} ${count}`);
+    }
+    console.log("");
+  }
+  return 0;
+}
+async function runTelemetryPurge(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const p = getTelemetryEventsPath();
+  if (!existsSync45(p)) {
+    if (jsonMode) emitJson(jsonSuccess("telemetry purge", { purged: false, reason: "no events file" }));
+    printDim("No hay archivo de eventos para borrar.");
+    return 0;
+  }
+  if (!opts.yes && isTTY12) {
+    const confirmed = await confirm5({
+      message: `Borrar todos los eventos de telemetr\xEDa en ${p}?`,
+      default: false
+    });
+    if (!confirmed) {
+      printDim("Cancelado.");
+      return 0;
+    }
+  } else if (!opts.yes && !isTTY12) {
+    const e = { code: "INVALID_INPUT", message: "En modo no interactivo, --yes es obligatorio." };
+    if (jsonMode) emitJson(jsonError({ command: "telemetry purge", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const sizeBefore = statSync8(p).size;
+  unlinkSync(p);
+  if (jsonMode) {
+    emitJson(jsonSuccess("telemetry purge", { purged: true, bytes_freed: sizeBefore }));
+  }
+  printOk(`Eventos de telemetr\xEDa borrados (${(sizeBefore / 1024).toFixed(1)} KB liberados).`);
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
+var __telemetryStarted = {
+  ts: 0,
+  command: "",
+  args: {}
+};
+program.hook("preAction", (thisCommand, actionCommand) => {
+  if (!isTelemetryEnabled()) return;
+  __telemetryStarted.ts = Date.now();
+  const parts = [];
+  let cur = actionCommand;
+  while (cur && cur.name() && cur.name() !== "dd-cli") {
+    parts.unshift(cur.name());
+    cur = cur.parent;
+  }
+  __telemetryStarted.command = parts.join(" ");
+  const flags = {};
+  for (const [k, v] of Object.entries(actionCommand.opts())) {
+    if (typeof v === "boolean") flags[k] = v;
+    else if (v === void 0 || v === null) flags[k] = false;
+    else flags[k] = true;
+  }
+  __telemetryStarted.args = flags;
+});
+var __origExit = process.exit.bind(process);
+process.exit = ((code) => {
+  if (__telemetryStarted.ts > 0 && isTelemetryEnabled()) {
+    try {
+      const args = __telemetryStarted.args;
+      const userEmail = process.env.GIT_AUTHOR_EMAIL ?? process.env.USER_EMAIL ?? null;
+      recordTelemetry({
+        command: __telemetryStarted.command,
+        exit_code: code ?? 0,
+        duration_ms: Date.now() - __telemetryStarted.ts,
+        args,
+        user_hash: hashUser(userEmail)
+      });
+    } catch {
+    }
+    __telemetryStarted.ts = 0;
+  }
+  return __origExit(code);
+});
 program.command("init").description("Inicializa DevFlow IA en el proyecto actual (session + skills + hooks)").option("--client <slug>", "Conecta el repo a un cliente registrado y genera config.yml").option("--force", "Sobrescribe .devflow/ y settings si existen", false).option("--no-skills", "No instala las 19 skills bundleadas").option("--no-hooks", "No escribe .claude/settings.json con hooks").action(async (opts) => {
   try {
     if (!opts.force && isContextRepo(process.cwd())) {
@@ -8897,6 +9247,47 @@ clientCmd.command("show <slug>").description("Dashboard del cliente: stack, apps
 clientCmd.command("list").description("Lista todos los clientes registrados con estado, apps y \xFAltimo sync.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
   try {
     process.exit(await runClientList({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+var telemetryCmd = program.command("telemetry").description("Telemetr\xEDa local opt-in (default OFF, sin push remoto).");
+telemetryCmd.command("enable").description("Habilita telemetr\xEDa local. Requiere --local expl\xEDcito.").option("--local", "Confirma scope local (obligatorio).", false).option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runTelemetryEnable(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+telemetryCmd.command("disable").description("Deshabilita telemetr\xEDa. Los eventos existentes se preservan.").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runTelemetryDisable(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+telemetryCmd.command("status").description("Estado de la telemetr\xEDa + total de eventos.").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runTelemetryStatus(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+telemetryCmd.command("report").description("Reporte de uso (por comando, exit code, errores).").option("--period <p>", 'Per\xEDodo (Nd o "all"). Default 30d.', "30d").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runTelemetryReport(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+telemetryCmd.command("purge").description("Borra todos los eventos de telemetr\xEDa.").option("--yes", "No pedir confirmaci\xF3n.", false).option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runTelemetryPurge(opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

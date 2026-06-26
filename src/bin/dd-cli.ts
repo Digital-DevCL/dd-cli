@@ -46,7 +46,12 @@ import { runStats } from '../commands/stats-cmd.js';
 import { runGuide } from '../commands/guide-cmd.js';
 import { runToday } from '../commands/today-cmd.js';
 import { runInbox, runInboxAdd } from '../commands/inbox-cmd.js';
+import {
+  runTelemetryEnable, runTelemetryDisable,
+  runTelemetryStatus, runTelemetryReport, runTelemetryPurge,
+} from '../commands/telemetry-cmd.js';
 import { isContextRepo } from '../types/context-repo.js';
+import { recordTelemetry, hashUser, isTelemetryEnabled } from '../utils/telemetry.js';
 
 const program = new Command();
 
@@ -54,6 +59,58 @@ program
   .name('dd-cli')
   .description('DevFlow IA — CLI oficial · bridge local entre Claude Code y la plataforma')
   .version(CLI_VERSION);
+
+// ── Telemetría: hook global (S7-1) ─────────────────────────────────
+// Captura el comando, tiempo y exit code de cada invocación si la
+// telemetría está habilitada. NO-OP si está OFF (chequeo barato).
+//
+// Como cada `action` llama `process.exit()`, usamos preAction para
+// guardar t0 y patcheamos `process.exit` para grabar antes de salir.
+const __telemetryStarted: { ts: number; command: string; args: Record<string, unknown> } = {
+  ts: 0, command: '', args: {},
+};
+program.hook('preAction', (thisCommand, actionCommand) => {
+  if (!isTelemetryEnabled()) return;
+  __telemetryStarted.ts = Date.now();
+  // Reconstruir el path del comando (ej: "client publish")
+  const parts: string[] = [];
+  let cur: Command | null = actionCommand;
+  while (cur && cur.name() && cur.name() !== 'dd-cli') {
+    parts.unshift(cur.name());
+    cur = cur.parent;
+  }
+  __telemetryStarted.command = parts.join(' ');
+  // Args sanitizados — sólo nombres de flags, no sus values (puede haber secrets)
+  const flags: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(actionCommand.opts())) {
+    // Sólo booleanos pasan, el resto se marca como "set/unset"
+    if (typeof v === 'boolean') flags[k] = v;
+    else if (v === undefined || v === null) flags[k] = false;
+    else flags[k] = true;  // valor presente pero no graba el valor real
+  }
+  __telemetryStarted.args = flags;
+});
+
+// Wrap process.exit para grabar el exit code
+const __origExit = process.exit.bind(process);
+process.exit = ((code?: number) => {
+  if (__telemetryStarted.ts > 0 && isTelemetryEnabled()) {
+    try {
+      // Detectar email del user si --by o --user están seteados
+      const args = __telemetryStarted.args;
+      const userEmail = process.env.GIT_AUTHOR_EMAIL ?? process.env.USER_EMAIL ?? null;
+      recordTelemetry({
+        command: __telemetryStarted.command,
+        exit_code: code ?? 0,
+        duration_ms: Date.now() - __telemetryStarted.ts,
+        args,
+        user_hash: hashUser(userEmail),
+      });
+    } catch { /* no romper exit */ }
+    __telemetryStarted.ts = 0;  // single-shot
+  }
+  return __origExit(code);
+}) as typeof process.exit;
 
 program
   .command('init')
@@ -447,6 +504,59 @@ clientCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runClientList({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Namespace `telemetry` — opt-in local (S7-1 / R-5)
+const telemetryCmd = program
+  .command('telemetry')
+  .description('Telemetría local opt-in (default OFF, sin push remoto).');
+
+telemetryCmd
+  .command('enable')
+  .description('Habilita telemetría local. Requiere --local explícito.')
+  .option('--local', 'Confirma scope local (obligatorio).', false)
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runTelemetryEnable(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+telemetryCmd
+  .command('disable')
+  .description('Deshabilita telemetría. Los eventos existentes se preservan.')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runTelemetryDisable(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+telemetryCmd
+  .command('status')
+  .description('Estado de la telemetría + total de eventos.')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runTelemetryStatus(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+telemetryCmd
+  .command('report')
+  .description('Reporte de uso (por comando, exit code, errores).')
+  .option('--period <p>', 'Período (Nd o "all"). Default 30d.', '30d')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runTelemetryReport(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+telemetryCmd
+  .command('purge')
+  .description('Borra todos los eventos de telemetría.')
+  .option('--yes', 'No pedir confirmación.', false)
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runTelemetryPurge(opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
