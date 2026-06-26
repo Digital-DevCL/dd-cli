@@ -2619,41 +2619,41 @@ function extractBlockerHint(message) {
 import { input, select } from "@inquirer/prompts";
 
 // src/commands/start-session.ts
-function buildStartSessionState(input4, cliVersion, now = () => (/* @__PURE__ */ new Date()).toISOString()) {
+function buildStartSessionState(input5, cliVersion, now = () => (/* @__PURE__ */ new Date()).toISOString()) {
   const warnings = [];
-  if (input4.mode === "local" && !input4.devType) {
+  if (input5.mode === "local" && !input5.devType) {
     warnings.push(
       "Modo local sin dev_type especificado. Se requiere flag --type=<tipo> o entrevista interactiva (no implementada en este stub)."
     );
   }
-  if (input4.mode === "platform" && !input4.devType) {
+  if (input5.mode === "platform" && !input5.devType) {
     warnings.push(
       "Modo platform: llamar primero devflow_get_feature() para obtener dev_type"
     );
   }
-  const enforcementRules = input4.devType ? enforcementRuleIdsForDevType(input4.devType) : [];
+  const enforcementRules = input5.devType ? enforcementRuleIdsForDevType(input5.devType) : [];
   const session = {
-    feature_id: input4.featureId,
-    feature_name: input4.featureName ?? null,
+    feature_id: input5.featureId,
+    feature_name: input5.featureName ?? null,
     session_id: `sess-${now()}`,
     started_at: now(),
     ended_at: null,
     last_heartbeat: now(),
-    mode: input4.mode,
+    mode: input5.mode,
     platform_url: null,
     unclosed: false,
-    dev_type: input4.devType ?? null,
-    dev_type_subtype: input4.devTypeSubtype ?? null,
-    dev_type_source: input4.mode === "platform" ? "tech-lead-approval" : "business-brief",
-    dev_type_rationale: input4.devTypeRationale ?? "",
+    dev_type: input5.devType ?? null,
+    dev_type_subtype: input5.devTypeSubtype ?? null,
+    dev_type_source: input5.mode === "platform" ? "tech-lead-approval" : "business-brief",
+    dev_type_rationale: input5.devTypeRationale ?? "",
     dev_type_locked: false,
     // LOCK ocurre en /new-spec → devflow_save_spec
     dev_type_locked_at: null,
-    apps_affected: input4.appsAffected ?? [],
+    apps_affected: input5.appsAffected ?? [],
     repo_context_path: null,
     baseline_path: null,
-    legacy_system: input4.legacySystem ?? null,
-    vendor: input4.vendor ?? null,
+    legacy_system: input5.legacySystem ?? null,
+    vendor: input5.vendor ?? null,
     enforcement_rules: enforcementRules,
     flow_state: "started",
     active_change: null,
@@ -3234,60 +3234,60 @@ import * as path16 from "path";
 
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
-function reclassify(input4) {
-  if (input4.session.mode !== "platform") {
+function reclassify(input5) {
+  if (input5.session.mode !== "platform") {
     return {
       ok: false,
       error: "NOT_PLATFORM_MODE",
       message: "Reclasificaci\xF3n solo permitida en modo platform. El audit-log requiere persistencia server-side."
     };
   }
-  if (!input4.session.started_at) {
+  if (!input5.session.started_at) {
     return {
       ok: false,
       error: "NO_SESSION",
       message: "No hay sesi\xF3n activa para reclasificar."
     };
   }
-  if (input4.reason.trim().length < MIN_REASON_CHARS) {
+  if (input5.reason.trim().length < MIN_REASON_CHARS) {
     return {
       ok: false,
       error: "REASON_TOO_SHORT",
       message: `Justificaci\xF3n requiere al menos ${MIN_REASON_CHARS} caracteres.`
     };
   }
-  if (input4.callerRole !== "tech-lead" && input4.callerRole !== "admin") {
+  if (input5.callerRole !== "tech-lead" && input5.callerRole !== "admin") {
     return {
       ok: false,
       error: "INSUFFICIENT_ROLE",
       message: "Solo Tech Lead o admin pueden reclassify despu\xE9s del lock."
     };
   }
-  if (input4.session.dev_type === input4.newType) {
+  if (input5.session.dev_type === input5.newType) {
     return {
       ok: false,
       error: "SAME_TYPE",
-      message: `El tipo ya es ${input4.newType}. Nada que reclasificar.`
+      message: `El tipo ya es ${input5.newType}. Nada que reclasificar.`
     };
   }
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const updated = {
-    ...input4.session,
-    dev_type: input4.newType,
+    ...input5.session,
+    dev_type: input5.newType,
     dev_type_subtype: null,
     // reset al cambiar tipo
     dev_type_source: "reclassify",
-    dev_type_rationale: input4.reason,
+    dev_type_rationale: input5.reason,
     dev_type_locked: true,
     dev_type_locked_at: now,
-    dev_type_reclassified_from: input4.session.dev_type ?? void 0,
+    dev_type_reclassified_from: input5.session.dev_type ?? void 0,
     // Recalcular enforcement_rules
-    enforcement_rules: enforcementRuleIdsForDevType(input4.newType)
+    enforcement_rules: enforcementRuleIdsForDevType(input5.newType)
   };
   return {
     ok: true,
     updatedSession: updated,
-    message: `Reclasificaci\xF3n aplicada: ${input4.session.dev_type} \u2192 ${input4.newType}. La plataforma generar\xE1 audit-log y evaluar\xE1 delta de lead-time.`
+    message: `Reclasificaci\xF3n aplicada: ${input5.session.dev_type} \u2192 ${input5.newType}. La plataforma generar\xE1 audit-log y evaluar\xE1 delta de lead-time.`
   };
 }
 
@@ -6789,6 +6789,262 @@ async function readKeyFiles2(provider, repoIdOrSlug, branch, concurrency) {
   return result;
 }
 
+// src/commands/client-onboard-dev.ts
+import { execSync as execSync8 } from "child_process";
+import { existsSync as existsSync34, mkdirSync as mkdirSync18, rmSync as rmSync4 } from "fs";
+import * as path30 from "path";
+import { input as input4, password as password2 } from "@inquirer/prompts";
+var isTTY10 = process.stdout.isTTY;
+function runGit6(cmd, cwd) {
+  return execSync8(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
+function embedTokenInUrl2(url, token, provider) {
+  try {
+    const u = new URL(url);
+    if (provider === "github") {
+      u.username = "x-access-token";
+      u.password = token;
+    } else {
+      u.username = "oauth2";
+      u.password = token;
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+async function runClientOnboardDev(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug o no es kebab-case. Uso: dd-cli client onboard-dev <slug>"
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  if (!jsonMode) console.log(bold(`
+Setup local para ${slug}
+`));
+  let contextUrl = opts.contextUrl;
+  let gitToken = opts.gitToken;
+  if (!contextUrl && !isTTY10) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "En modo no interactivo se necesita --context-url y --git-token.",
+      recovery_hints: [
+        `Ejemplo: dd-cli client onboard-dev ${slug} --context-url=https://... --git-token=glpat-...`
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  if (!contextUrl) {
+    contextUrl = await input4({
+      message: "URL del context repo del cliente (te la pasa el consultor):",
+      validate: (v) => /^https?:\/\//.test(v) || "Debe ser una URL http(s) al repo de contexto"
+    });
+  }
+  if (!gitToken) {
+    printInfo("Necesit\xE1s un PAT propio (NO el del consultor) con scope read-only:");
+    printDim("  GitLab: read_repository");
+    printDim("  GitHub: repo:read o public_repo si el repo es p\xFAblico");
+    gitToken = await password2({
+      message: "Tu token API (read-only):",
+      mask: "*",
+      validate: (v) => v.trim().length > 0 || "Es obligatorio"
+    });
+  }
+  const provider = /github/i.test(contextUrl) ? "github" : "gitlab";
+  const baseUrl = provider === "github" ? "https://api.github.com" : "https://gitlab.com";
+  let group;
+  try {
+    const u = new URL(contextUrl);
+    const parts = u.pathname.replace(/^\/|\.git$/g, "").split("/");
+    group = parts[0] ?? "";
+    if (!group) throw new Error("Sin group");
+  } catch {
+    const e = {
+      code: "INVALID_INPUT",
+      message: "No pude inferir el group/org desde la URL del context repo.",
+      recovery_hints: ["Verific\xE1 que la URL tenga el formato https://<host>/<group>/<slug>-devflow-context.git"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const creds = {
+    git_token: gitToken,
+    git_host: provider,
+    git_base_url: baseUrl,
+    git_group: group
+  };
+  const providerInstance = createProvider(creds, { type: provider, base_url: baseUrl, group_or_org: group });
+  if (!jsonMode) printInfo(`Validando token contra ${provider} / ${group} ...`);
+  const tokenCheck = await providerInstance.validateToken({ required_for: ["read"] });
+  if (!tokenCheck.valid) {
+    const e = {
+      code: "TOKEN_INVALID",
+      message: tokenCheck.message,
+      context: { provider, group },
+      recovery_hints: ["Gener\xE1 un PAT con scope read-only en tu cuenta"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...e }));
+    printErr(e.message);
+    return 1;
+  }
+  if (tokenCheck.scopes_missing.length > 0) {
+    const e = {
+      code: "TOKEN_INSUFFICIENT_SCOPE",
+      message: `Al token le faltan scopes: ${tokenCheck.scopes_missing.join(", ")}`,
+      context: {
+        provider,
+        scopes_present: tokenCheck.scopes_present,
+        scopes_missing: tokenCheck.scopes_missing
+      }
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  if (!jsonMode) printOk(`Token v\xE1lido \u2014 usuario ${tokenCheck.user ?? "desconocido"}`);
+  const cacheDir = getClientCacheDir(slug);
+  const cloneUrl = embedTokenInUrl2(contextUrl, gitToken, provider);
+  if (existsSync34(cacheDir)) {
+    try {
+      runGit6("git pull --ff-only", cacheDir);
+      if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
+    } catch {
+      if (!jsonMode) printWarn("Pull fall\xF3; re-clonando ...");
+      rmSync4(cacheDir, { recursive: true, force: true });
+    }
+  }
+  if (!existsSync34(cacheDir)) {
+    const parentDir = path30.dirname(cacheDir);
+    if (!existsSync34(parentDir)) mkdirSync18(parentDir, { recursive: true });
+    try {
+      runGit6(`git clone "${cloneUrl}" "${cacheDir}"`);
+      if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const errObj = {
+        code: "GIT_CLONE_FAILED",
+        message: `git clone fall\xF3: ${errMsg}`,
+        context: { url: contextUrl, cache_dir: cacheDir },
+        recovery_hints: ["Verific\xE1 que el token tenga acceso al context repo"]
+      };
+      if (jsonMode) emitJson(jsonError({ command: "client onboard-dev", ...errObj }));
+      printErr(errObj.message);
+      return 1;
+    }
+  }
+  let clientName = slug;
+  try {
+    const marker = loadContextRepoMarker(cacheDir);
+    if (marker) clientName = marker.client.name;
+  } catch {
+  }
+  registerClient({
+    slug,
+    name: clientName,
+    context_url: contextUrl,
+    local_cache: cacheDir,
+    last_synced: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  setClientCredentials(slug, creds);
+  if (!jsonMode) printOk("Cliente registrado en esta m\xE1quina (~/.devflow/registry.yml + credentials.yml)");
+  const skillsDir = getClaudeSkillsDir();
+  const skillsInstalled = existsSync34(skillsDir);
+  if (!skillsInstalled && !jsonMode) {
+    printWarn("Las skills DevFlow IA NO est\xE1n instaladas en esta m\xE1quina.");
+    printDim("  Para instalarlas: dd-cli skills install");
+    printDim("  Para statusline:  dd-cli install");
+  } else if (!jsonMode) {
+    printOk("Skills DevFlow IA instaladas");
+  }
+  try {
+    recordCommandResult(slug, "client onboard-dev", {
+      success: true,
+      state: "READY",
+      nextSafe: `cd <repo-de-codigo> && dd-cli init --client=${slug}`
+    });
+  } catch {
+  }
+  const result = {
+    slug,
+    context_url: contextUrl,
+    cache_dir: cacheDir,
+    skills_installed: skillsInstalled,
+    state: "ACTIVE"
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("client onboard-dev", result, `cd <repo-de-codigo> && dd-cli init --client=${slug}`));
+  }
+  console.log("");
+  printOk(`${bold(clientName)} listo en esta m\xE1quina.`);
+  console.log("");
+  printInfo("Cuando vayas a programar:");
+  printDim(`  cd <repo-de-codigo>`);
+  printDim(`  dd-cli init --client=${slug}`);
+  printDim(`  dd-cli start-session <HDU-id>`);
+  return 0;
+}
+
+// src/commands/error-codes-cmd.ts
+var EXIT_CODE_CATEGORIES = {
+  1: "Operacional (red, permisos, archivo no encontrado)",
+  2: "Precondici\xF3n no cumplida (configuraci\xF3n, registro)",
+  3: "Validaci\xF3n (schema, input mal formado)"
+};
+async function runErrorCodes(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const byExitCode = { 1: [], 2: [], 3: [] };
+  for (const code of ERROR_CODES) {
+    byExitCode[exitCodeFor(code)].push(code);
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("error-codes", {
+      exit_codes: {
+        0: "\xC9xito completo",
+        1: EXIT_CODE_CATEGORIES[1],
+        2: EXIT_CODE_CATEGORIES[2],
+        3: EXIT_CODE_CATEGORIES[3]
+      },
+      total: ERROR_CODES.length,
+      by_exit_code: byExitCode,
+      codes: ERROR_CODES.map((code) => ({
+        code,
+        exit_code: exitCodeFor(code)
+      }))
+    }));
+  }
+  console.log("");
+  console.log(bold("Convenci\xF3n de exit codes (R-4 del redise\xF1o)"));
+  console.log("");
+  console.log("  0  \xC9xito completo");
+  for (const code of [1, 2, 3]) {
+    console.log(`  ${code}  ${EXIT_CODE_CATEGORIES[code]}`);
+  }
+  console.log("");
+  console.log(bold(`C\xF3digos de error estables (${ERROR_CODES.length})`));
+  console.log("");
+  console.log("Estos c\xF3digos son contrato \u2014 son consumidos por las skills");
+  console.log("y por integraciones de CI. Estables entre versiones del CLI.");
+  console.log("");
+  for (const exitCode of [3, 2, 1]) {
+    if (byExitCode[exitCode].length === 0) continue;
+    console.log(bold(`  Exit ${exitCode} \u2014 ${EXIT_CODE_CATEGORIES[exitCode]}`));
+    for (const code of byExitCode[exitCode]) {
+      console.log(`    ${code}`);
+    }
+    console.log("");
+  }
+  printDim("Para output JSON: dd-cli error-codes --json");
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -6946,9 +7202,30 @@ clientCmd.command("list").description("Lista todos los clientes registrados con 
     process.exit(10);
   }
 });
+program.command("error-codes").description("Lista los c\xF3digos de error estables y exit codes (R-4 del redise\xF1o).").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
+  try {
+    process.exit(await runErrorCodes({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
 program.command("home").description("Dashboard del operador: tus clientes, sesi\xF3n activa, sistema.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
   try {
     process.exit(await runHome({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("onboard-dev <slug>").description("Setup local para un dev nuevo: clona context repo + registra cliente. Token read-only.").option("--context-url <url>", "URL del context repo (te la pasa el consultor)").option("--git-token <token>", "PAT propio del dev con scope read-only").option("--yes", "No pedir confirmaciones", false).option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientOnboardDev(slug, {
+      contextUrl: opts.contextUrl,
+      gitToken: opts.gitToken,
+      yes: opts.yes,
+      json: opts.json
+    }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

@@ -32,6 +32,8 @@ import { runClientPublish } from '../commands/client-publish.js';
 import { runClientShow } from '../commands/client-show.js';
 import { runClientList, runHome } from '../commands/client-list.js';
 import { runClientRefresh } from '../commands/client-refresh.js';
+import { runClientOnboardDev } from '../commands/client-onboard-dev.js';
+import { runErrorCodes } from '../commands/error-codes-cmd.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -264,12 +266,42 @@ clientCmd
   });
 
 program
+  .command('error-codes')
+  .description('Lista los códigos de error estables y exit codes (R-4 del rediseño).')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (opts: { json?: boolean }) => {
+    try { process.exit(await runErrorCodes({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
   .command('home')
   .description('Dashboard del operador: tus clientes, sesión activa, sistema.')
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runHome({ json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('onboard-dev <slug>')
+  .description('Setup local para un dev nuevo: clona context repo + registra cliente. Token read-only.')
+  .option('--context-url <url>', 'URL del context repo (te la pasa el consultor)')
+  .option('--git-token <token>', 'PAT propio del dev con scope read-only')
+  .option('--yes', 'No pedir confirmaciones', false)
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: any) => {
+    try {
+      process.exit(await runClientOnboardDev(slug, {
+        contextUrl: opts.contextUrl,
+        gitToken: opts.gitToken,
+        yes: opts.yes,
+        json: opts.json,
+      }));
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(10);
+    }
   });
 
 clientCmd
