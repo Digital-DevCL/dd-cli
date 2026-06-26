@@ -35,6 +35,9 @@ export * from './types/hdu.js';
 // Telemetría local (S7-1 / R-5) — opt-in, append-only ~/.devflow/telemetry.jsonl
 export * from './utils/telemetry.js';
 
+// Audit headers + checksums (S7-2 / R-3) — detecta edición manual vs auto-gen
+export * from './utils/audit.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

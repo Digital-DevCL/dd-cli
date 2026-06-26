@@ -16,6 +16,7 @@ import * as path from 'node:path';
 import * as yaml from 'js-yaml';
 import { APP_TYPES, APP_ORIGINS } from './project-config.js';
 import { DEV_TYPES } from './dev-type.js';
+import { writeWithAudit, parseAuditedFile } from '../utils/audit.js';
 
 // ── Subschemas ───────────────────────────────────────────────────────
 
@@ -83,7 +84,10 @@ export function loadCatalog(contextRepoRoot: string): Catalog | null {
   const yamlPath = getCatalogYamlPath(contextRepoRoot);
   if (existsSync(yamlPath)) {
     const raw = readFileSync(yamlPath, 'utf-8');
-    const parsed = yaml.load(raw);
+    // S7-2: si tiene audit header, parsear solo el body
+    const audited = parseAuditedFile(raw);
+    const yamlContent = audited.header ? audited.body : raw;
+    const parsed = yaml.load(yamlContent);
     const result = CatalogSchema.safeParse(parsed);
     if (!result.success) {
       throw new Error(`catalog.yml inválido en ${yamlPath}:\n${result.error.message}`);
@@ -100,13 +104,25 @@ export function loadCatalog(contextRepoRoot: string): Catalog | null {
   return null;
 }
 
-export function saveCatalog(contextRepoRoot: string, catalog: Catalog): void {
+export interface SaveCatalogOpts {
+  generated_by?: string;       // S7-2: si está, agrega audit header
+  cli_version?: string;
+}
+
+export function saveCatalog(contextRepoRoot: string, catalog: Catalog, opts: SaveCatalogOpts = {}): void {
   const dir = path.join(contextRepoRoot, CATALOG_DIR);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const validated = CatalogSchema.parse(catalog);
   const yamlStr = yaml.dump(validated, { indent: 2, lineWidth: 120 });
-  writeFileSync(getCatalogYamlPath(contextRepoRoot), yamlStr, 'utf-8');
+  const content = opts.generated_by && opts.cli_version
+    ? writeWithAudit({
+        generated_by: opts.generated_by,
+        cli_version: opts.cli_version,
+        body: yamlStr,
+      })
+    : yamlStr;
+  writeFileSync(getCatalogYamlPath(contextRepoRoot), content, 'utf-8');
 }
 
 // ── Backward-compat: parser de markdown legacy ──────────────────────

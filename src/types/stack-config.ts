@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
+import { writeWithAudit, parseAuditedFile } from '../utils/audit.js';
 
 // ── Subschemas ───────────────────────────────────────────────────────
 
@@ -96,7 +97,10 @@ export function loadStackConfig(contextRepoRoot: string): StackConfig | null {
   if (!existsSync(p)) return null;
 
   const raw = readFileSync(p, 'utf-8');
-  const parsed = yaml.load(raw);
+  // S7-2: si tiene audit header, parsear solo el body para YAML
+  const audited = parseAuditedFile(raw);
+  const yamlContent = audited.header ? audited.body : raw;
+  const parsed = yaml.load(yamlContent);
   const result = StackConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(`stack.yml inválido en ${p}:\n${result.error.message}`);
@@ -104,13 +108,26 @@ export function loadStackConfig(contextRepoRoot: string): StackConfig | null {
   return result.data;
 }
 
-export function saveStackConfig(contextRepoRoot: string, config: StackConfig): void {
+export interface SaveStackConfigOpts {
+  generated_by?: string;       // S7-2: si está, agrega audit header
+  cli_version?: string;
+}
+
+export function saveStackConfig(contextRepoRoot: string, config: StackConfig, opts: SaveStackConfigOpts = {}): void {
   const stackDir = path.join(contextRepoRoot, STACK_DIR);
   if (!existsSync(stackDir)) mkdirSync(stackDir, { recursive: true });
 
   const validated = StackConfigSchema.parse(config);
   const yamlStr = yaml.dump(validated, { indent: 2, lineWidth: 120 });
-  writeFileSync(getStackConfigPath(contextRepoRoot), yamlStr, 'utf-8');
+  // S7-2: audit header opcional
+  const content = opts.generated_by && opts.cli_version
+    ? writeWithAudit({
+        generated_by: opts.generated_by,
+        cli_version: opts.cli_version,
+        body: yamlStr,
+      })
+    : yamlStr;
+  writeFileSync(getStackConfigPath(contextRepoRoot), content, 'utf-8');
 }
 
 // ── Backward-compat: detectar legacy .devflow/config.yml master ──────

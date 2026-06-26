@@ -968,7 +968,11 @@ type StackConfig = z.infer<typeof StackConfigSchema>;
 declare function getStackConfigPath(contextRepoRoot: string): string;
 declare function hasStackConfig(contextRepoRoot: string): boolean;
 declare function loadStackConfig(contextRepoRoot: string): StackConfig | null;
-declare function saveStackConfig(contextRepoRoot: string, config: StackConfig): void;
+interface SaveStackConfigOpts {
+    generated_by?: string;
+    cli_version?: string;
+}
+declare function saveStackConfig(contextRepoRoot: string, config: StackConfig, opts?: SaveStackConfigOpts): void;
 /**
  * Heurística para detectar el config.yml "master" legacy.
  *
@@ -1139,7 +1143,11 @@ declare function hasCatalog(contextRepoRoot: string): boolean;
  * Retorna null si no hay ninguno.
  */
 declare function loadCatalog(contextRepoRoot: string): Catalog | null;
-declare function saveCatalog(contextRepoRoot: string, catalog: Catalog): void;
+interface SaveCatalogOpts {
+    generated_by?: string;
+    cli_version?: string;
+}
+declare function saveCatalog(contextRepoRoot: string, catalog: Catalog, opts?: SaveCatalogOpts): void;
 /**
  * Parsea el markdown legacy `app-catalog.md` al shape de Catalog.
  *
@@ -1520,6 +1528,136 @@ declare function regenerateHduIndex(contextRepoRoot: string): HduIndex;
 declare function canHduTransitionTo(from: HduStatus, to: HduStatus): boolean;
 declare function legalNextStatuses(from: HduStatus): HduStatus[];
 
+declare const TelemetryConfigSchema: z.ZodObject<{
+    enabled: z.ZodDefault<z.ZodBoolean>;
+    scope: z.ZodDefault<z.ZodLiteral<"local">>;
+    enabled_at: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    enabled: boolean;
+    scope: "local";
+    enabled_at: string | null;
+}, {
+    enabled?: boolean | undefined;
+    scope?: "local" | undefined;
+    enabled_at?: string | null | undefined;
+}>;
+type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>;
+declare const TelemetryEventSchema: z.ZodObject<{
+    ts: z.ZodString;
+    command: z.ZodString;
+    exit_code: z.ZodNumber;
+    duration_ms: z.ZodNumber;
+    args: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+    user_hash: z.ZodOptional<z.ZodString>;
+    client_slug: z.ZodOptional<z.ZodString>;
+    error_code: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    ts: string;
+    command: string;
+    exit_code: number;
+    duration_ms: number;
+    args?: Record<string, unknown> | undefined;
+    user_hash?: string | undefined;
+    client_slug?: string | undefined;
+    error_code?: string | undefined;
+}, {
+    ts: string;
+    command: string;
+    exit_code: number;
+    duration_ms: number;
+    args?: Record<string, unknown> | undefined;
+    user_hash?: string | undefined;
+    client_slug?: string | undefined;
+    error_code?: string | undefined;
+}>;
+type TelemetryEvent = z.infer<typeof TelemetryEventSchema>;
+declare function getTelemetryConfigPath(): string;
+declare function getTelemetryEventsPath(): string;
+declare function loadTelemetryConfig(): TelemetryConfig;
+declare function saveTelemetryConfig(config: TelemetryConfig): void;
+declare function isTelemetryEnabled(): boolean;
+/**
+ * Hash truncado para emails — preserva poder distinguir entre devs sin
+ * exponer la identidad real en el log.
+ */
+declare function hashUser(email: string | undefined | null): string | undefined;
+declare function sanitizeArgs(args: Record<string, unknown> | undefined): Record<string, unknown> | undefined;
+/**
+ * Append a un evento de telemetría. NO-OP si está deshabilitada.
+ *
+ * Esta función es segura para llamar desde cualquier comando — si la
+ * telemetría está OFF, no abre archivos ni hace I/O.
+ */
+declare function recordTelemetry(event: Omit<TelemetryEvent, 'ts'>): void;
+declare function readTelemetryEvents(): TelemetryEvent[];
+interface TelemetryStats {
+    total_events: number;
+    by_command: Record<string, number>;
+    by_exit_code: Record<string, number>;
+    by_error_code: Record<string, number>;
+    avg_duration_ms: number;
+    events_per_day: Record<string, number>;
+    active_days: number;
+    file_size_bytes: number;
+    oldest_event: string | null;
+    newest_event: string | null;
+}
+declare function computeTelemetryStats(events: TelemetryEvent[]): TelemetryStats;
+
+interface AuditHeader {
+    generated_by: string;
+    generated_at: string;
+    cli_version: string;
+    checksum: string;
+}
+interface ParsedAuditedFile {
+    header: AuditHeader | null;
+    body: string;
+    body_checksum: string;
+    matches_checksum: boolean;
+}
+/**
+ * Hash del body. Normalizado a UTF-8, sin trailing whitespace.
+ */
+declare function sha256Body(body: string): string;
+/**
+ * Construye el header de auditoría como comentario YAML/markdown.
+ * Compatible con .yml, .md, .toml, cualquier formato que use `#` para comentarios.
+ */
+declare function buildAuditHeader(opts: {
+    generated_by: string;
+    cli_version: string;
+    body: string;
+    generated_at?: string;
+}): string;
+/**
+ * Parsea un archivo audit-eado. Si no tiene header, retorna body intacto +
+ * header: null + matches_checksum: false (no audit info).
+ */
+declare function parseAuditedFile(content: string): ParsedAuditedFile;
+/**
+ * Wrappea un body con audit header y retorna el contenido listo para escribir.
+ *
+ * Importante: el header DEBE escribirse SOBRE el body final exacto que se
+ * va a persistir. Para evitar circularidad (header depende de body, body
+ * no depende del header), calculamos el checksum sobre el body limpio.
+ */
+declare function writeWithAudit(opts: {
+    generated_by: string;
+    cli_version: string;
+    body: string;
+}): string;
+/**
+ * Verdad útil para `context validate`: el artefacto tiene header válido,
+ * y el contenido coincide con el checksum del header.
+ */
+declare function isAuditedAndUnmodified(content: string): boolean;
+/**
+ * Útil para `client refresh` y `context render`: ¿este archivo fue
+ * editado a mano (auditado pero checksum no coincide)?
+ */
+declare function wasManuallyEdited(content: string): boolean;
+
 /**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
@@ -1785,4 +1923,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION: string;
 
-export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, HDU_PRIORITIES, HDU_STATUSES, type Hdu, type HduFrontmatter, HduFrontmatterSchema, type HduIndex, type HduIndexEntry, HduIndexEntrySchema, HduIndexSchema, type HduPriority, type HduStatus, type HduTransition, HduTransitionSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, appendTransition, canHduTransitionTo, canTransitionTo, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHduFilePath, getHduIndexPath, getHduTransitionsPath, getHdusDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, legalNextStatuses, listHdus, loadCatalog, loadContextRepoMarker, loadHdu, loadHduIndex, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseHduFile, parseMarkdownCatalog, partition, readClientState, readTransitions, recordCommandResult, regenerateHduIndex, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveHdu, saveHduIndex, saveSession, saveStackConfig, serializeHdu, suggestedCommandFor, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type AuditHeader, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, HDU_PRIORITIES, HDU_STATUSES, type Hdu, type HduFrontmatter, HduFrontmatterSchema, type HduIndex, type HduIndexEntry, HduIndexEntrySchema, HduIndexSchema, type HduPriority, type HduStatus, type HduTransition, HduTransitionSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, type ParsedAuditedFile, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, type SaveCatalogOpts, type SaveStackConfigOpts, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TelemetryConfig, TelemetryConfigSchema, type TelemetryEvent, TelemetryEventSchema, type TelemetryStats, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, appendTransition, buildAuditHeader, canHduTransitionTo, canTransitionTo, computeTelemetryStats, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHduFilePath, getHduIndexPath, getHduTransitionsPath, getHdusDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, getTelemetryConfigPath, getTelemetryEventsPath, hasCatalog, hasSession, hasStackConfig, hashUser, inferProviderType, isAppOrigin, isAuditedAndUnmodified, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, isTelemetryEnabled, jsonError, jsonSuccess, legalNextStatuses, listHdus, loadCatalog, loadContextRepoMarker, loadHdu, loadHduIndex, loadSession, loadStackConfig, loadTelemetryConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseAuditedFile, parseHduFile, parseMarkdownCatalog, partition, readClientState, readTelemetryEvents, readTransitions, recordCommandResult, recordTelemetry, regenerateHduIndex, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, sanitizeArgs, saveCatalog, saveContextRepoMarker, saveHdu, saveHduIndex, saveSession, saveStackConfig, saveTelemetryConfig, serializeHdu, sha256Body, suggestedCommandFor, suggestedNextStep, updateClientState, wasManuallyEdited, writeClientState, writeWithAudit };

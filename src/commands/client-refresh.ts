@@ -18,6 +18,7 @@ import { getClientCredentials } from '../types/credentials.js';
 import { createProvider } from '../providers/factory.js';
 import { analyzeRepo, synthesizeDiscovery, type DiscoveryResult } from '../discovery/pattern-detector.js';
 import { loadCatalog, saveCatalog, type Catalog, type CatalogApp, CatalogSchema, CatalogAppSchema } from '../types/catalog.js';
+import { CLI_VERSION } from '../index.js';
 import { runContextRender } from './context-render.js';
 import { recordCommandResult, readClientState } from '../utils/client-state.js';
 import { isJsonMode, emitJson, jsonSuccess, jsonError, type JsonModeOpts } from '../utils/json-output.js';
@@ -288,7 +289,10 @@ export async function runClientRefresh(slug: string, opts: ClientRefreshOpts = {
   let applied = false;
   if (opts.apply && !noChanges) {
     const merged = applyDiffToCatalog(currentCatalog, freshApps, diff);
-    saveCatalog(cacheDir, merged);
+    saveCatalog(cacheDir, merged, {
+      generated_by: 'dd-cli client refresh',
+      cli_version: CLI_VERSION,
+    });
     // Regenerar markdown derivado
     try { await runContextRender(cacheDir, { json: true }); } catch { /* no crítico */ }
     applied = true;

@@ -20,6 +20,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from 'node:fs';
 import * as path from 'node:path';
 import * as yaml from 'js-yaml';
+import { CLI_VERSION } from '../index.js';
 import { getClient, getClientCacheDir } from '../types/registry.js';
 import {
   loadStackConfig,
@@ -213,11 +214,17 @@ function applyMigration(cacheDir: string, slug: string, steps: MigrationStep[]):
       const parsed = yaml.load(raw) as Record<string, unknown>;
       const next = buildStackFromLegacyMaster(slug, parsed);
       const config = StackConfigSchema.parse(next);
-      saveStackConfig(cacheDir, config);
+      saveStackConfig(cacheDir, config, {
+        generated_by: 'dd-cli client migrate',
+        cli_version: CLI_VERSION,
+      });
     }
     if (step.type === 'create-catalog-yml-from-markdown') {
       const catalog = loadCatalog(cacheDir);
-      if (catalog) saveCatalog(cacheDir, catalog);
+      if (catalog) saveCatalog(cacheDir, catalog, {
+        generated_by: 'dd-cli client migrate',
+        cli_version: CLI_VERSION,
+      });
     }
   }
 }

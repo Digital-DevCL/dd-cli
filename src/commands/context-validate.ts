@@ -13,11 +13,12 @@
  *
  * Output JSON estructurado bajo D-8.
  */
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { loadContextRepoMarker, isContextRepo, getContextRepoMarkerPath } from '../types/context-repo.js';
 import { loadStackConfig, hasStackConfig, getStackConfigPath } from '../types/stack-config.js';
 import { loadCatalog, hasCatalog, getCatalogYamlPath, getCatalogMarkdownPath } from '../types/catalog.js';
+import { parseAuditedFile } from '../utils/audit.js';
 import { isJsonMode, emitJson, jsonSuccess, jsonError, type JsonModeOpts } from '../utils/json-output.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
 
@@ -110,6 +111,19 @@ export function validateContextRepo(repoRoot: string): Finding[] {
           rule: 'stack-config',
           message: `stack.yml OK — ${stack.stack.backend_framework} + ${stack.stack.frontend_framework}`,
         });
+        // S7-2: audit check
+        try {
+          const raw = readFileSync(getStackConfigPath(repoRoot), 'utf-8');
+          const audited = parseAuditedFile(raw);
+          if (audited.header && !audited.matches_checksum) {
+            findings.push({
+              level: 'warn',
+              rule: 'stack-config-audit',
+              message: `stack.yml fue editado a mano (checksum no coincide con header de ${audited.header.generated_by})`,
+              hint: 'Si los cambios son deliberados, regenerá con dd-cli client refresh para actualizar el checksum',
+            });
+          }
+        } catch { /* */ }
       }
     } catch (e) {
       findings.push({
@@ -138,6 +152,22 @@ export function validateContextRepo(repoRoot: string): Finding[] {
         rule: 'catalog',
         message: `catalog OK — ${apps.length} apps`,
       });
+      // S7-2: audit check del catalog.yml
+      const catalogYmlPath = getCatalogYamlPath(repoRoot);
+      if (existsSync(catalogYmlPath)) {
+        try {
+          const raw = readFileSync(catalogYmlPath, 'utf-8');
+          const audited = parseAuditedFile(raw);
+          if (audited.header && !audited.matches_checksum) {
+            findings.push({
+              level: 'warn',
+              rule: 'catalog-audit',
+              message: `catalog.yml fue editado a mano (checksum no coincide con header de ${audited.header.generated_by})`,
+              hint: 'Si los cambios son deliberados, regenerá con dd-cli client refresh para actualizar el checksum',
+            });
+          }
+        } catch { /* */ }
+      }
 
       // 5. Referencias auth y ci_cd
       const authAvailable = authProfilesAvailable(repoRoot);
