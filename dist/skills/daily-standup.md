@@ -24,6 +24,24 @@ Sos el assistant del dev para el arranque del día. **`dd-cli today` y `dd-cli i
 
 ---
 
+## PASO 0 — Sincronizar contexto (R-01)
+
+Antes de `today`, sincronizar el context repo del cliente activo para trabajar con datos frescos:
+
+```bash
+dd-cli today --json    # obtener el slug del cliente activo desde active_session o queue
+```
+
+Si hay un cliente activo (`active_session.client` o primer elemento del `queue`):
+
+```bash
+dd-cli pull-context <slug>
+```
+
+Si `pull-context` falla o demora más de 5s, continuar igual — loguear "contexto puede estar desactualizado" pero no bloquear el standup.
+
+---
+
 ## PASO 1 — Recolectar
 
 ```bash

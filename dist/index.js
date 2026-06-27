@@ -1849,16 +1849,24 @@ var GitLabProvider = class {
   // ── listGroupRepos ────────────────────────────────────────────────
   async listGroupRepos() {
     const encodedGroup = encodeURIComponent(this.group_or_org);
-    const projects = await this.request(
-      `groups/${encodedGroup}/projects`,
-      {
-        per_page: "100",
-        include_subgroups: "true",
-        with_shared: "false",
-        order_by: "last_activity_at",
-        sort: "desc"
-      }
-    );
+    let projects;
+    try {
+      projects = await this.request(
+        `groups/${encodedGroup}/projects`,
+        {
+          per_page: "100",
+          include_subgroups: "true",
+          with_shared: "false",
+          order_by: "last_activity_at",
+          sort: "desc"
+        }
+      );
+    } catch {
+      projects = await this.request(
+        `users/${encodedGroup}/projects`,
+        { per_page: "100", order_by: "last_activity_at", sort: "desc" }
+      );
+    }
     return projects.map((p) => ({
       id: p["id"],
       slug: p["path"] ?? "",
@@ -1903,13 +1911,18 @@ var GitLabProvider = class {
    * 'public' → "public".
    */
   async createRepo(opts) {
-    const group = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`);
-    if (!group.id) {
+    const nsResults = await this.request(
+      `namespaces`,
+      { search: this.group_or_org }
+    );
+    const ns = nsResults.find((n) => n.path === this.group_or_org) ?? nsResults[0];
+    if (!ns?.id) {
       throw new ProviderError(
-        `No se pudo resolver el group "${this.group_or_org}" en GitLab.`,
+        `No se pudo resolver el namespace "${this.group_or_org}" en GitLab.`,
         { provider: "gitlab" }
       );
     }
+    const group = { id: ns.id };
     const body = {
       name: opts.name,
       path: opts.name,
@@ -2081,10 +2094,18 @@ var GitHubProvider = class {
   }
   // ── listGroupRepos ────────────────────────────────────────────────
   async listGroupRepos() {
-    const { json } = await this.request(
-      `orgs/${this.group_or_org}/repos`,
-      { per_page: "100", sort: "pushed", direction: "desc" }
-    );
+    let json;
+    try {
+      ({ json } = await this.request(
+        `orgs/${this.group_or_org}/repos`,
+        { per_page: "100", sort: "pushed", direction: "desc" }
+      ));
+    } catch {
+      ({ json } = await this.request(
+        `users/${this.group_or_org}/repos`,
+        { per_page: "100", sort: "pushed", direction: "desc" }
+      ));
+    }
     const repos = json;
     return repos.map((r) => ({
       id: r["id"],
@@ -2221,9 +2242,8 @@ function inferProviderType(host, baseUrl) {
 }
 function defaultBaseUrlFor(type, raw) {
   if (type === "gitlab") return raw;
-  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) {
-    return "https://api.github.com";
-  }
+  if (/^https?:\/\/api\.github\.com\/?$/i.test(raw)) return "https://api.github.com";
+  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) return "https://api.github.com";
   if (/\/api\/v\d/.test(raw)) return raw;
   if (/github/i.test(raw)) return `${raw.replace(/\/$/, "")}/api/v3`;
   return raw;

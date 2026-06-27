@@ -12,6 +12,8 @@ import { runStartSession } from '../commands/start-session-cmd.js';
 import { runNext } from '../commands/next-cmd.js';
 import { runHeartbeat } from '../commands/heartbeat.js';
 import { runSkillsList, runSkillsVerify, runSkillsInstall } from '../commands/skills-cmd.js';
+import { runAgentDocWriter, runAgentMetrics } from '../commands/agent-cmd.js';
+import { runServe } from '../commands/serve-cmd.js';
 import { runHelp } from '../commands/help-cmd.js';
 import { runReclassifyCmd } from '../commands/reclassify-cmd.js';
 import { runRegisterClient } from '../commands/register-client.js';
@@ -935,6 +937,60 @@ program
       console.error(e instanceof Error ? e.message : String(e));
       process.exit(10);
     }
+  });
+
+// ── dd-cli serve ────────────────────────────────────────────────────
+program
+  .command('serve')
+  .description('Servidor HTTP local que expone el motor de estado para la app web (S10)')
+  .option('--port <n>', 'Puerto (default: 51234)', String(51234))
+  .option('--token <t>', 'Token de autenticación (se genera uno si no se pasa)')
+  .action(async (opts) => {
+    try {
+      process.exit(await runServe({
+        port: parseInt(opts.port, 10),
+        token: opts.token,
+      }));
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(10);
+    }
+  });
+
+// ── dd-cli agent ────────────────────────────────────────────────────
+const agentCmd = program
+  .command('agent')
+  .description('Agentes IA de DevFlow — documentación, QA, code review (S9+)');
+
+const docWriterCmd = agentCmd
+  .command('doc-writer')
+  .description('Agente de documentación: genera README y CHANGELOG desde commits');
+
+docWriterCmd
+  .command('run')
+  .description('Analiza commits recientes y actualiza documentación del repo actual')
+  .option('--since <date>', 'Analizar commits desde esta fecha (formato git, ej: "7 days ago")', '7 days ago')
+  .option('--no-commit', 'Genera los archivos pero no hace commit')
+  .option('--json', 'Output en JSON (modo no interactivo)')
+  .action(async (opts) => {
+    try {
+      process.exit(await runAgentDocWriter(process.cwd(), {
+        since: opts.since,
+        noCommit: opts.commit === false,
+        json: opts.json,
+      }));
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(10);
+    }
+  });
+
+docWriterCmd
+  .command('metrics')
+  .description('Muestra métricas acumuladas del agente doc-writer')
+  .action(async () => {
+    try { process.exit(await runAgentMetrics()); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
 program.parseAsync(process.argv).catch((e) => {

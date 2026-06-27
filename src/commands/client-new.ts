@@ -55,7 +55,8 @@ function runGit(cmd: string, cwd?: string): string {
 }
 
 function defaultBaseUrlFor(type: ProviderType): string {
-  return type === 'github' ? 'https://api.github.com' : 'https://gitlab.com';
+  // Guardar el clone URL, no el API URL — factory.ts hace la conversión (P-04)
+  return type === 'github' ? 'https://github.com' : 'https://gitlab.com';
 }
 
 function contextRepoNameFor(slug: string): string {

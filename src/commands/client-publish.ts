@@ -20,13 +20,18 @@
  * Sprint 4 implementará PR-flow para refresh y refresh-publish.
  */
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { getClient, getClientCacheDir, updateLastSynced } from '../types/registry.js';
 import { validateContextRepo } from './context-validate.js';
 import { runContextRender } from './context-render.js';
+import { loadStackConfig } from '../types/stack-config.js';
+import { loadCatalog } from '../types/catalog.js';
 import { recordCommandResult, readClientState } from '../utils/client-state.js';
 import { isJsonMode, emitJson, jsonSuccess, jsonError, type JsonModeOpts } from '../utils/json-output.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
+import { getTemplatePath, renderTemplate } from '../utils/templates.js';
+import { CLI_VERSION } from '../index.js';
 
 export interface ClientPublishOpts extends JsonModeOpts {
   /** No pushear al remoto, solo commit local. */
@@ -117,13 +122,51 @@ export async function runClientPublish(slug: string, opts: ClientPublishOpts = {
   }
   steps.push({ type: 'validate', action: 'ok', detail: `${findings.filter(f => f.level === 'ok').length} OK, ${warnings.length} warnings` });
 
-  // ── 2. Render markdown derivado ──────────────────────────────────
+  // ── 2. Render markdown derivado + CLAUDE.md del context repo ────────
   try {
     await runContextRender(cacheDir, { json: true /* silenciar output */ });
     steps.push({ type: 'render', action: 'ok' });
   } catch (e) {
-    // Solo loggeamos; render no es crítico para el push
     steps.push({ type: 'render', action: 'failed', detail: e instanceof Error ? e.message : String(e) });
+  }
+
+  // G-01: generar CLAUDE.md del context repo si no existe (o si es el del dev)
+  const claudeMdPath = path.join(cacheDir, 'CLAUDE.md');
+  const templatePath = getTemplatePath('CLAUDE.context-repo.md.template');
+  if (templatePath && !existsSync(claudeMdPath)) {
+    try {
+      const stackCfg = loadStackConfig(cacheDir);
+      let catalog;
+      try { catalog = loadCatalog(cacheDir); } catch { /* catalog puede no existir aún */ }
+
+      const stackSummary = stackCfg
+        ? [stackCfg.stack?.backend_framework, stackCfg.stack?.frontend_framework]
+            .filter(Boolean).join(' + ') || '[completar]'
+        : '[completar]';
+
+      const contextUrl = entry.context_url;
+      const providerLabel = /github\.com/i.test(contextUrl) ? 'GitHub'
+        : /gitlab/i.test(contextUrl) ? 'GitLab'
+        : 'Git';
+      // Extraer org/group del context_url (ej: github.com/ORG/repo → ORG)
+      const urlParts = contextUrl.replace(/\.git$/, '').split('/');
+      const groupFromUrl = urlParts.length >= 2 ? urlParts[urlParts.length - 2] : '[completar]';
+
+      const rendered = renderTemplate(templatePath, {
+        CLIENT_NAME: stackCfg?.client?.name ?? entry.name ?? slug,
+        CLIENT_SLUG: slug,
+        PROVIDER: providerLabel,
+        GROUP: groupFromUrl,
+        STACK_SUMMARY: stackSummary,
+        APP_COUNT: String(catalog?.apps?.length ?? 0),
+        CLI_VERSION,
+        GENERATED_AT: new Date().toISOString().split('T')[0],
+      });
+      writeFileSync(claudeMdPath, rendered, 'utf-8');
+      if (!jsonMode) printOk('CLAUDE.md generado para rol TL/PMO');
+    } catch (e) {
+      if (!jsonMode) printDim(`CLAUDE.md no generado: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // ── 3. Detectar cambios ──────────────────────────────────────────
@@ -148,9 +191,15 @@ export async function runClientPublish(slug: string, opts: ClientPublishOpts = {
     if (!jsonMode) printDim('No hay cambios para publicar.');
   } else {
     try {
-      runGit('git add .', cacheDir);
-      const commitMsg = `feat: publish context for ${slug}\n\nGenerado por dd-cli client publish (S3-4).`;
-      runGit(`git -c commit.gpgsign=false commit -m "${commitMsg}"`, cacheDir);
+      // --all para capturar directorios nuevos (ej: hdus/) además de modificaciones (B-01)
+      runGit('git add --all', cacheDir);
+      // -m doble para separar subject de body sin newlines en la shell (B-04)
+      // -c user.* garantiza identidad aunque el usuario no la tenga configurada globalmente
+      runGit(
+        `git -c user.email="dd-cli@devflow.ia" -c user.name="DevFlow IA" -c commit.gpgsign=false` +
+        ` commit -m "feat: publish context for ${slug}" -m "Generado por dd-cli client publish."`,
+        cacheDir
+      );
       steps.push({ type: 'commit', action: 'ok' });
       if (!jsonMode) printOk('Commit creado');
     } catch (e) {

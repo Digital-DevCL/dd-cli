@@ -8,6 +8,7 @@
  */
 import type { RepoMeta, FileContent } from './git-api.js';
 import type { AppType, AppOrigin } from '../types/project-config.js';
+import { toKebabCase } from '../utils/strings.js';
 
 // ── Tipos de resultado ────────────────────────────────────────
 
@@ -256,8 +257,8 @@ export function analyzeRepo(
   const isMfe = appType === 'frontend-mfe' || meta.slug.includes('mfe');
 
   return {
-    slug: meta.slug,
-    display_name: meta.name,
+    slug: toKebabCase(meta.slug),  // P-05: normalizar a kebab-case
+    display_name: meta.name || meta.slug,  // preservar nombre original para display
     stack,
     app_type: appType,
     app_origin: lastActiveDays < 180 && !meta.archived ? 'legacy-app' : 'legacy-app', // siempre legacy hasta confirmar

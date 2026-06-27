@@ -456,6 +456,39 @@ export async function runHduReview(hduId: string, opts: TransitionOptsBase = {})
 }
 
 export async function runHduApprove(hduId: string, opts: TransitionOptsBase = {}): Promise<number> {
+  // F-01: advertir si la HDU no tiene criterios de aceptación con Gherkin
+  if (opts.client && hduId) {
+    const r = resolveCacheDir(opts.client);
+    if (r.ok) {
+      try {
+        const hdu = listHdus(r.cacheDir).find(h => h.frontmatter.id === hduId);
+        if (hdu) {
+          const body = hdu.body ?? '';
+          const hasGherkin = /##\s*Criterios/i.test(body) &&
+            /(Dado|Cuando|Entonces|Given|When|Then)/i.test(body);
+          const hasPendingDevType = !hdu.frontmatter.dev_type ||
+            hdu.frontmatter.dev_type === 'pending';
+
+          if (!hasGherkin) {
+            printWarn('⚠  Esta HDU no tiene criterios de aceptación con Gherkin.');
+            printDim('   Sin criterios, el SPEC quedará incompleto. Completalos con: /devflow-ia:enrich-us');
+            if (!opts.yes && isTTY) {
+              const proceed = await confirm({ message: '¿Aprobar igual?', default: false });
+              if (!proceed) {
+                printInfo('Aprobación cancelada. Completá los criterios primero.');
+                return 1;
+              }
+            }
+          }
+          if (hasPendingDevType) {
+            printWarn('⚠  dev_type está en "pending". El dev no sabrá qué journey seguir.');
+            printDim('   Definilo con: /devflow-ia:design-hdu');
+          }
+        }
+      } catch { /* si no se puede leer, transitionHdu maneja el error */ }
+    }
+  }
+
   return transitionHdu('hdu approve', hduId, 'approved', opts, (hdu) => {
     hdu.frontmatter.approved_by = opts.by ?? hdu.frontmatter.approved_by;
     hdu.frontmatter.approved_at = new Date().toISOString();

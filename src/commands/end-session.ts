@@ -10,6 +10,7 @@
  */
 import { getProjectRoot } from '../utils/paths.js';
 import { loadSession, saveSession, SessionIOError } from '../utils/session-io.js';
+import { closeGlobalSession } from '../utils/global-sessions.js';
 import { printOk, printWarn, printErr, printDim, bold } from '../utils/output.js';
 
 export interface EndSessionOptions {
@@ -66,6 +67,7 @@ export async function runEndSession(opts: EndSessionOptions = {}): Promise<numbe
   };
 
   saveSession(projectRoot, updated);
+  closeGlobalSession(projectRoot);
 
   console.log(bold(`\nSesión cerrada\n`));
   printOk(`Feature: ${updated.feature_id ?? '?'} · ${updated.feature_name ?? ''}`);

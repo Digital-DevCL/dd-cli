@@ -68,10 +68,10 @@ export function inferProviderType(host: GitHost | undefined, baseUrl: string): P
  */
 function defaultBaseUrlFor(type: ProviderType, raw: string): string {
   if (type === 'gitlab') return raw;
-  // github cloud — si el caller pasa github.com queremos api.github.com
-  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) {
-    return 'https://api.github.com';
-  }
+  // Si ya es el API URL de GitHub cloud, devolverlo tal cual (P-04)
+  if (/^https?:\/\/api\.github\.com\/?$/i.test(raw)) return 'https://api.github.com';
+  // github.com → api.github.com
+  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) return 'https://api.github.com';
   // si ya parece una URL de API, dejarla
   if (/\/api\/v\d/.test(raw)) return raw;
   // GHE: <base>/api/v3

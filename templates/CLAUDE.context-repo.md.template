@@ -1,0 +1,121 @@
+# {{CLIENT_NAME}} — DevFlow IA · Context Repo
+
+<!-- Generado por dd-cli client publish. Actualiza las secciones marcadas con [completar]. -->
+
+## Qué es este repo
+
+Este es el **context repo de {{CLIENT_NAME}}** para DevFlow IA. Contiene:
+
+- `.devflow-context/stack.yml` — stack tecnológico, entorno, CI/CD
+- `.devflow-context/catalog.yml` — catálogo de apps del cliente
+- `.devflow-context/auth-profiles/` — perfiles de autenticación por app
+- `.devflow-context/cicd-profiles/` — pipelines de CI/CD
+- `hdus/` — Historias de Desarrollo (HDUs) con su ciclo de vida completo
+
+**Provider:** {{PROVIDER}} · **Group/Org:** {{GROUP}}
+**Generado con:** dd-cli v{{CLI_VERSION}} · {{GENERATED_AT}}
+
+---
+
+## Rol principal en este repo: Tech Lead / PMO
+
+Al abrir Claude Code aquí, asumí que el usuario es **Tech Lead o PMO** de {{CLIENT_NAME}}.
+**No empieces con flujo de desarrollo** — este repo no tiene código productivo.
+
+### Workflow del Tech Lead
+
+```
+1. Ver HDUs pendientes de aprobación
+   /devflow-ia:hdu-board
+
+2. Crear nueva HDU desde brief o input del negocio
+   /devflow-ia:capture-req   → brief estandarizado
+   /devflow-ia:enrich-us     → agrega criterios y edge cases
+   /devflow-ia:design-hdu    → genera HDU formal con Gherkin
+
+3. Ver métricas del sprint
+   /devflow-ia:stats-review
+
+4. Planificar sprint
+   /devflow-ia:plan-sprint
+```
+
+### Workflow del PMO / Negocio
+
+```
+1. Capturar nuevo requerimiento (texto, audio, email)
+   /devflow-ia:capture-req
+
+2. Refinar en HDU
+   /devflow-ia:enrich-us
+   /devflow-ia:design-hdu
+```
+
+### Comandos CLI para TL
+
+```bash
+dd-cli hdu list --client={{CLIENT_SLUG}}          # ver todas las HDUs
+dd-cli hdu approve <HDU-N> --by=<email>           # aprobar draft
+dd-cli hdu assign <HDU-N> --to=<email>            # asignar dev
+dd-cli stats --client={{CLIENT_SLUG}} --period=14d # métricas del sprint
+dd-cli client publish {{CLIENT_SLUG}}              # sincronizar cambios al remoto
+```
+
+---
+
+## Contexto de {{CLIENT_NAME}}
+
+**Stack principal:** {{STACK_SUMMARY}}
+**Apps catalogadas:** {{APP_COUNT}} apps en `.devflow-context/catalog.yml`
+**Gaps detectados:** ver `.devflow-context/client-assessment.md`
+
+### Apps afectadas con más frecuencia
+
+<!-- dd-cli context render actualiza esta sección automáticamente -->
+Ver `.devflow-context/app-catalog.md` para el listado completo con auth y CI profiles.
+
+---
+
+## Gates de aprobación (no saltearlos)
+
+```
+GATE 1 — HDU aprobada
+  Quién: Tech Lead
+  Qué valida: Gherkin completo + dev_type definido + apps_affected correctas
+  Cómo: dd-cli hdu approve <HDU-N> --by=<tl-email>
+  BLOQUEO: NO se puede aprobar si falta bloque ## Criterios de aceptación
+
+GATE 2 — PR aprobado
+  Quién: Tech Lead
+  Qué valida: code review + SPEC vs código
+  Cómo: revisar MR en {{PROVIDER}} + dd-cli hdu close <HDU-N>
+```
+
+---
+
+## Ciclo de vida de una HDU
+
+```
+draft → approved → in-progress → in-review → done
+          ↑               ↓
+       (Tech Lead)    (cancelable)
+```
+
+Para ver el historial de transiciones de una HDU:
+```bash
+dd-cli hdu show <HDU-N> --client={{CLIENT_SLUG}}
+```
+
+---
+
+## Reglas que Claude hace cumplir aquí
+
+```
+✗ No aprobar HDU sin bloque ## Criterios de aceptación con Gherkin
+✗ No asignar HDU con dev_type: pending
+✗ No crear HDU sin título, Como/Quiero/Para
+
+✓ Al crear HDU → sugerir /devflow-ia:enrich-us si el cuerpo está vacío
+✓ Al aprobar HDU → confirmar dev_type + apps_affected antes de persistir
+✓ Al fin de sesión → proponer dd-cli client publish {{CLIENT_SLUG}}
+```

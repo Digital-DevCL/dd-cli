@@ -68,7 +68,25 @@ Vamos a completar:
 
 ### Modo B — Invocación manual (sin DEVFLOW_HDU_PATH)
 
-Comportamiento original: el usuario tipea `/devflow-ia:design-hdu` directamente. Continuar con el flujo normal desde PASO 0b.
+**F-02:** En modo manual, esta skill crea la HDU completa en un solo paso:
+primero invoca `dd-cli hdu new` para registrar la HDU (obtener ID y crear el placeholder),
+luego completa el archivo generado con el cuerpo estructurado.
+
+Antes de continuar con PASO 0b, preguntar:
+
+```
+¿Para qué cliente es esta HDU?
+(si hay un solo cliente registrado, usar ese por defecto)
+```
+
+Luego ejecutar para obtener un ID y placeholder:
+
+```bash
+dd-cli hdu new "<título que el usuario describa>" --client=<slug> --priority=media
+```
+
+Guardar el path devuelto como DEVFLOW_HDU_PATH (equivalente al Modo A) y continuar en **PASO 1**.
+Si el comando falla, reportar el error y abortar.
 
 ---
 

@@ -15,6 +15,7 @@
 import { input, select } from '@inquirer/prompts';
 import { getProjectRoot } from '../utils/paths.js';
 import { loadSession, saveSession, hasSession, SessionIOError } from '../utils/session-io.js';
+import { registerGlobalSession, getUnclosedSessionsElsewhere } from '../utils/global-sessions.js';
 import { DEV_TYPES, type DevType } from '../types/dev-type.js';
 import { CLI_VERSION } from '../index.js';
 import { buildStartSessionState } from './start-session.js';
@@ -75,7 +76,7 @@ export async function runStartSession(
   // ── Entrevista interactiva ───────────────────────────────
   console.log(bold(`\nNueva sesión — ${featureId}\n`));
 
-  const useInteractive = !opts.yes && process.stdout.isTTY;
+  const useInteractive = !opts.yes && process.stdin.isTTY;
 
   let featureName: string;
   let devType: DevType;
@@ -190,7 +191,20 @@ export async function runStartSession(
     CLI_VERSION
   );
 
+  // S-01: alertar si hay sesiones unclosed en otros proyectos
+  const unclosed = getUnclosedSessionsElsewhere(projectRoot);
+  if (unclosed.length > 0) {
+    console.log('');
+    printWarn(`Hay ${unclosed.length} sesión(es) sin cerrar en otros proyectos:`);
+    for (const s of unclosed) {
+      printDim(`  · ${s.feature_id}${s.client ? ' (' + s.client + ')' : ''} — iniciada ${s.started_at.split('T')[0]}`);
+    }
+    printInfo('Cerrá las anteriores con: dd-cli end-session (en cada repo correspondiente)');
+    console.log('');
+  }
+
   saveSession(projectRoot, session);
+  registerGlobalSession(projectRoot, session.feature_id ?? featureId, session.started_at ?? new Date().toISOString());
 
   for (const w of warnings) printWarn(w);
 

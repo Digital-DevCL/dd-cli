@@ -152,10 +152,19 @@ export class GitHubProvider implements GitProvider {
   // ── listGroupRepos ────────────────────────────────────────────────
 
   async listGroupRepos(): Promise<RepoMeta[]> {
-    const { json } = await this.request(
-      `orgs/${this.group_or_org}/repos`,
-      { per_page: '100', sort: 'pushed', direction: 'desc' }
-    );
+    // P-01: intentar org primero; si es cuenta personal cae a users/{name}/repos
+    let json: unknown;
+    try {
+      ({ json } = await this.request(
+        `orgs/${this.group_or_org}/repos`,
+        { per_page: '100', sort: 'pushed', direction: 'desc' }
+      ));
+    } catch {
+      ({ json } = await this.request(
+        `users/${this.group_or_org}/repos`,
+        { per_page: '100', sort: 'pushed', direction: 'desc' }
+      ));
+    }
     const repos = json as Array<Record<string, unknown>>;
 
     return repos.map((r) => ({

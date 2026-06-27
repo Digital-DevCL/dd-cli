@@ -158,17 +158,26 @@ export class GitLabProvider implements GitProvider {
   // ── listGroupRepos ────────────────────────────────────────────────
 
   async listGroupRepos(): Promise<RepoMeta[]> {
+    // P-02: intentar group primero; si es namespace personal cae a users/{name}/projects
     const encodedGroup = encodeURIComponent(this.group_or_org);
-    const projects = await this.request(
-      `groups/${encodedGroup}/projects`,
-      {
-        per_page: '100',
-        include_subgroups: 'true',
-        with_shared: 'false',
-        order_by: 'last_activity_at',
-        sort: 'desc',
-      }
-    ) as Array<Record<string, unknown>>;
+    let projects: Array<Record<string, unknown>>;
+    try {
+      projects = await this.request(
+        `groups/${encodedGroup}/projects`,
+        {
+          per_page: '100',
+          include_subgroups: 'true',
+          with_shared: 'false',
+          order_by: 'last_activity_at',
+          sort: 'desc',
+        }
+      ) as Array<Record<string, unknown>>;
+    } catch {
+      projects = await this.request(
+        `users/${encodedGroup}/projects`,
+        { per_page: '100', order_by: 'last_activity_at', sort: 'desc' }
+      ) as Array<Record<string, unknown>>;
+    }
 
     return projects.map((p) => ({
       id: p['id'] as number,
@@ -228,16 +237,20 @@ export class GitLabProvider implements GitProvider {
    * 'public' → "public".
    */
   async createRepo(opts: CreateRepoOpts): Promise<RepoMeta> {
-    // GitLab necesita el ID del namespace (group). Lo resolvemos primero.
-    const group = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`) as {
-      id?: number;
-    };
-    if (!group.id) {
+    // P-03: resolver namespace vía /namespaces?search= para soportar grupos Y usuarios personales
+    type NsResult = { id?: number; kind?: string; path?: string };
+    const nsResults = await this.request(
+      `namespaces`,
+      { search: this.group_or_org }
+    ) as NsResult[];
+    const ns = nsResults.find(n => n.path === this.group_or_org) ?? nsResults[0];
+    if (!ns?.id) {
       throw new ProviderError(
-        `No se pudo resolver el group "${this.group_or_org}" en GitLab.`,
+        `No se pudo resolver el namespace "${this.group_or_org}" en GitLab.`,
         { provider: 'gitlab' }
       );
     }
+    const group = { id: ns.id };
 
     const body = {
       name: opts.name,

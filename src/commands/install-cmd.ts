@@ -22,6 +22,7 @@ import {
   isClaudeCodeInstalled,
 } from '../utils/paths.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
+import { runSkillsInstall } from './skills-cmd.js';
 
 export interface InstallOptions {
   force?: boolean;
@@ -101,6 +102,14 @@ export async function runInstall(opts: InstallOptions = {}): Promise<number> {
   printDim('  · Fuera de un proyecto DevFlow → "DevFlow IA · vX.Y.Z ready"');
   printDim('  · Proyecto sin sesión          → "DevFlow IA · sin sesión · ..."');
   printDim('  · Sesión activa                → "HDU-X · paso N/M: ... · Tm  ⬢ tipo"');
+
+  console.log('');
+  printInfo('Instalando skills en ~/.claude/commands/devflow-ia/ ...');
+  const skillsResult = await runSkillsInstall({ force: opts.force });
+  if (skillsResult !== 0) {
+    printWarn('Skills no se instalaron correctamente. Podés reintentarlo con: dd-cli skills install --force');
+  }
+
   return 0;
 }
 
