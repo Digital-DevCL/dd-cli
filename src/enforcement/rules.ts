@@ -83,15 +83,16 @@ export const RULES: Record<string, EnforcementRule> = {
   BLOCK_NEW_APP: {
     id: 'BLOCK_NEW_APP',
     applies_to: NON_GREENFIELD,
-    severity: 'block',
+    severity: 'warn',  // E-01: era 'block', era falso positivo — es un recordatorio, no un bloqueo
     evaluate: ({ session }) => {
-      // Esta regla se evalúa DENTRO de /new-app, no fuera.
-      // El "passed" es siempre false (la regla bloquea por definición cuando aplica).
+      // Solo avisa si el dev intenta usar /new-app en brownfield.
+      // No puede detectarse desde session state → siempre pasa; el aviso
+      // queda en la skill /new-app que ya tiene la lógica de rechazo.
       return {
         rule_id: 'BLOCK_NEW_APP',
-        passed: false,
-        severity: 'block',
-        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. \`/new-app\` solo aplica a greenfield.`,
+        passed: true,
+        severity: 'warn',
+        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. /new-app solo aplica a greenfield.`,
       };
     },
   },

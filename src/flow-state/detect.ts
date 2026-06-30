@@ -35,12 +35,13 @@ export function detectFlowState({
   const needsRepoContext = devType !== null && requiresRepoContext(devType);
   const needsBaseline = devType !== null && requiresBaseline(devType);
 
-  // 3) Spec + lock presente → estados terminales
+  // 3) Spec presente → estados terminales (E-02: no requiere dev_type_locked)
+  // El lock era una doble validación que causaba que sessiones con SPEC generado
+  // pero sin lock explícito quedaran atascadas en repo_mapped/started.
   const specPath = path.join(projectRoot, '.ai/SPEC.md');
   const hasSpec = existsSync(specPath) && statSync(specPath).size > 100;
-  const isLocked = session.dev_type_locked === true;
 
-  if (hasSpec && isLocked) {
+  if (hasSpec) {
     const changes = globbySync('openspec/changes/*/tasks.md', { cwd: projectRoot });
     if (changes.length > 0) return 'change_active';
     return 'spec_ready';

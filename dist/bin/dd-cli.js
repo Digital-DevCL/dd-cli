@@ -546,8 +546,7 @@ function detectFlowState({
   const needsBaseline = devType !== null && requiresBaseline(devType);
   const specPath = path.join(projectRoot, ".ai/SPEC.md");
   const hasSpec = existsSync(specPath) && statSync(specPath).size > 100;
-  const isLocked = session.dev_type_locked === true;
-  if (hasSpec && isLocked) {
+  if (hasSpec) {
     const changes = globbySync("openspec/changes/*/tasks.md", { cwd: projectRoot });
     if (changes.length > 0) return "change_active";
     return "spec_ready";
@@ -668,13 +667,14 @@ var RULES = {
   BLOCK_NEW_APP: {
     id: "BLOCK_NEW_APP",
     applies_to: NON_GREENFIELD,
-    severity: "block",
+    severity: "warn",
+    // E-01: era 'block', era falso positivo — es un recordatorio, no un bloqueo
     evaluate: ({ session }) => {
       return {
         rule_id: "BLOCK_NEW_APP",
-        passed: false,
-        severity: "block",
-        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. \`/new-app\` solo aplica a greenfield.`
+        passed: true,
+        severity: "warn",
+        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. /new-app solo aplica a greenfield.`
       };
     }
   },
@@ -2420,7 +2420,7 @@ var warn = (text) => isTTY ? chalk.yellow(text) : text;
 var err = (text) => isTTY ? chalk.red(text) : text;
 var info = (text) => isTTY ? chalk.cyan(text) : text;
 var dim = (text) => isTTY ? chalk.gray(text) : text;
-var bold = (text) => isTTY ? chalk.bold(text) : text;
+var bold2 = (text) => isTTY ? chalk.bold(text) : text;
 function printOk(message) {
   console.log(`${ok("\u2713")} ${message}`);
 }
@@ -2539,7 +2539,7 @@ async function runInit(opts = {}) {
       writeFileSync11(claudeMdPath, content, "utf-8");
     }
   }
-  console.log(bold(`
+  console.log(bold2(`
 DevFlow IA \u2014 init`));
   printDim(`  Proyecto: ${projectRoot}
 `);
@@ -2605,7 +2605,7 @@ DevFlow IA \u2014 init`));
     printDim(`  Edita las variables {{...}} con los datos del proyecto`);
   }
   console.log(`
-${bold("Listo.")} Abre Claude Code en este directorio.`);
+${bold2("Listo.")} Abre Claude Code en este directorio.`);
   printDim(`
 Pr\xF3ximo paso: dd-cli start-session <feature-id>`);
   printDim(`Tip: para ver la statusline en Claude Code \u2192 ejecuta una sola vez: dd-cli install`);
@@ -3121,7 +3121,7 @@ async function runEndSession(opts = {}) {
   };
   saveSession(projectRoot, updated);
   closeGlobalSession(projectRoot);
-  console.log(bold(`
+  console.log(bold2(`
 Sesi\xF3n cerrada
 `));
   printOk(`Feature: ${updated.feature_id ?? "?"} \xB7 ${updated.feature_name ?? ""}`);
@@ -3498,7 +3498,7 @@ async function runStartSession(featureId, opts = {}) {
     printInfo(`O retoma con: /resume-session (dentro de Claude Code)`);
     return 1;
   }
-  console.log(bold(`
+  console.log(bold2(`
 Nueva sesi\xF3n \u2014 ${featureId}
 `));
   const useInteractive = !opts.yes && process.stdin.isTTY;
@@ -3624,7 +3624,7 @@ Nueva sesi\xF3n \u2014 ${featureId}
     console.log(`  ${labelPad("Apps:")}     ${session.apps_affected.join(", ")}`);
   }
   console.log("");
-  printInfo(`Pr\xF3ximo paso: ejecuta ${bold("dd-cli next")} para ver qu\xE9 viene`);
+  printInfo(`Pr\xF3ximo paso: ejecuta ${bold2("dd-cli next")} para ver qu\xE9 viene`);
   printDim(`(o levanta la barra de estado en otro pane: dd-cli watch)`);
   return 0;
 }
@@ -3665,14 +3665,14 @@ function runNext() {
     const b = blockers[0];
     const human = HUMAN_BLOCKERS[b.rule_id];
     if (human) {
-      console.log(`Tu siguiente paso es: ${bold(human.command === "(completar en la APP)" ? "completar campos en la APP" : human.command)}`);
+      console.log(`Tu siguiente paso es: ${bold2(human.command === "(completar en la APP)" ? "completar campos en la APP" : human.command)}`);
       console.log("");
       console.log(dim2(`\xBFPor qu\xE9? ${human.why}`));
       if (human.command !== "(completar en la APP)") {
         console.log(`\u2192 En Claude Code, tipea: ${cyan(human.command)}`);
       }
     } else {
-      console.log(`Tu siguiente paso es: ${bold("resolver precondici\xF3n pendiente")}`);
+      console.log(`Tu siguiente paso es: ${bold2("resolver precondici\xF3n pendiente")}`);
       console.log("");
       console.log(dim2(b.message));
     }
@@ -3686,7 +3686,7 @@ function runNext() {
     return 1;
   }
   const stage2 = ctx.currentStage;
-  console.log(`Tu siguiente paso es: ${bold(stage2.id)}`);
+  console.log(`Tu siguiente paso es: ${bold2(stage2.id)}`);
   console.log("");
   console.log(dim2(`\xBFPor qu\xE9? ${stage2.rationale}`));
   console.log("");
@@ -3898,7 +3898,7 @@ Skills instaladas en ${skillsDir} (v${version})
   }
   const modelIcon = { opus: "\u2B1B", sonnet: "\u2B1C", haiku: "\u25AA", "?": "\xB7" };
   for (const [origin, list] of Object.entries(byOrigin)) {
-    console.log(`  ${bold(origin)}:`);
+    console.log(`  ${bold2(origin)}:`);
     for (const s of list) {
       const icon = modelIcon[s.model] ?? "\xB7";
       const name = s.name.padEnd(26);
@@ -4050,7 +4050,7 @@ async function runAgentDocWriter(cwd, opts = {}) {
   }
   const since = opts.since ?? "7 days ago";
   const repoName = path20.basename(cwd);
-  console.log(bold(`
+  console.log(bold2(`
 \u{1F916} dd-doc-writer  \xB7  ${repoName}
 `));
   printDim(`  Analizando commits desde: ${since}`);
@@ -4147,7 +4147,7 @@ async function runAgentMetrics() {
   }
   const lines = readFileSync17(METRICS_FILE, "utf-8").trim().split("\n").filter(Boolean);
   const metrics = lines.map((l) => JSON.parse(l));
-  console.log(bold("\n\u{1F4CA} M\xE9tricas del agente dd-doc-writer\n"));
+  console.log(bold2("\n\u{1F4CA} M\xE9tricas del agente dd-doc-writer\n"));
   console.log(`  Runs totales:        ${metrics.length}`);
   const dryRuns = metrics.filter((m) => m.dry_run).length;
   console.log(`  Dry runs:            ${dryRuns}`);
@@ -4217,7 +4217,7 @@ async function runServe(opts = {}) {
     res.end(JSON.stringify({ error: "Not found" }));
   });
   server.listen(port, "127.0.0.1", () => {
-    console.log(bold(`
+    console.log(bold2(`
 DevFlow IA \u2014 motor de estado HTTP
 `));
     printOk(`Escuchando en http://127.0.0.1:${port}`);
@@ -4250,7 +4250,7 @@ DevFlow IA \u2014 motor de estado HTTP
 
 // src/commands/help-cmd.ts
 var isTTY4 = process.stdout.isTTY;
-var bold3 = (s) => isTTY4 ? `\x1B[1m${s}\x1B[0m` : s;
+var bold4 = (s) => isTTY4 ? `\x1B[1m${s}\x1B[0m` : s;
 var cyan2 = (s) => isTTY4 ? `\x1B[36m${s}\x1B[0m` : s;
 var dim3 = (s) => isTTY4 ? `\x1B[90m${s}\x1B[0m` : s;
 var ALL_COMMANDS = [
@@ -4282,7 +4282,7 @@ function runHelp(opts = {}) {
   }
   if (opts.all) {
     console.log(`
-${bold3("Todos los comandos de dd-cli")}
+${bold4("Todos los comandos de dd-cli")}
 `);
     printCommands(ALL_COMMANDS);
     console.log("");
@@ -4299,7 +4299,7 @@ ${bold3("Todos los comandos de dd-cli")}
   const ctx = session?.dev_type ? getStageContext(session, flowState) : null;
   if (!session || !session.started_at) {
     console.log(`
-${bold3("Empezando en este proyecto")}
+${bold4("Empezando en este proyecto")}
 `);
     printCommands([
       { cmd: "dd-cli init", desc: "Primera vez: configura el proyecto" },
@@ -4312,7 +4312,7 @@ ${bold3("Empezando en este proyecto")}
   const stageName = ctx?.currentStage?.id ?? "?";
   const devType = session.dev_type ?? "?";
   console.log(`
-${bold3(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/${ctx?.total ?? "?"} \xB7 ${devType})`)}
+${bold4(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/${ctx?.total ?? "?"} \xB7 ${devType})`)}
 `);
   const contextual = [
     { cmd: "dd-cli status", desc: "Ver progreso completo del viaje" },
@@ -4579,7 +4579,7 @@ async function runRegisterClient(slug, opts) {
   const cacheDir = getClientCacheDir(slug);
   const registry = loadRegistry();
   const alreadyExists = !!registry.clients[slug];
-  console.log(bold(`
+  console.log(bold2(`
 Registrando cliente: ${slug}
 `));
   if (alreadyExists && !opts.force) {
@@ -4712,7 +4712,7 @@ function syncCache(slug, contextUrl) {
 }
 async function runInitClient(clientSlug) {
   const projectRoot = getProjectRoot();
-  console.log(bold(`
+  console.log(bold2(`
 Conectando repo al cliente: ${clientSlug}
 `));
   const clientEntry = getClient(clientSlug);
@@ -4910,7 +4910,7 @@ function runPullContext(slugArg, opts) {
   }
   const cacheDir = getClientCacheDir(slug);
   if (!jsonMode) {
-    console.log(bold(`
+    console.log(bold2(`
 Actualizando contexto del cliente: ${slug}
 `));
     printDim(`  Cache: ${cacheDir}`);
@@ -5067,7 +5067,7 @@ var green = (s) => isTTY7 ? `\x1B[32m${s}\x1B[0m` : s;
 function runDoctorCmd(opts = {}) {
   const projectRoot = getProjectRoot();
   console.log(`
-${bold("Diagn\xF3stico del entorno DevFlow IA")}
+${bold2("Diagn\xF3stico del entorno DevFlow IA")}
 `);
   console.log(`${dim5("Sistema:")}`);
   if (isClaudeCodeInstalled()) {
@@ -5235,7 +5235,8 @@ function countTasks(projectRoot, changeName) {
   }
 }
 function renderLines(projectRoot) {
-  const W = 78;
+  const termW = process.stdout.columns ?? 80;
+  const W = Math.min(100, Math.max(60, termW - 4));
   let session;
   try {
     session = loadSession(projectRoot);
@@ -5251,7 +5252,9 @@ function renderLines(projectRoot) {
   }
   const flowState = detectFlowState({ projectRoot, session });
   const ctx = session.dev_type ? getStageContext(session, flowState) : null;
-  const feature = `${session.feature_id ?? "?"} \xB7 ${session.feature_name ?? ""}`;
+  const rawFeature = `${session.feature_id ?? "?"} \xB7 ${session.feature_name ?? ""}`;
+  const maxFeature = W - 30;
+  const feature = rawFeature.length > maxFeature ? rawFeature.slice(0, maxFeature - 1) + "\u2026" : rawFeature;
   const changeName = activeChangeName(projectRoot);
   const specPart = changeName ? `spec: ${c2.cyan(changeName)}` : c2.dim("spec: pendiente");
   const line1 = `${c2.bold("DevFlow IA")} ${c2.dim("\u2502")} ${feature} ${c2.dim("\u2502")} ${specPart}`;
@@ -5339,6 +5342,21 @@ async function runWatch(opts = {}) {
 // src/commands/install-cmd.ts
 import { existsSync as existsSync29, mkdirSync as mkdirSync18, readFileSync as readFileSync22, writeFileSync as writeFileSync16 } from "fs";
 import * as path27 from "path";
+import chalk2 from "chalk";
+function printBanner() {
+  const g = chalk2.hex("#00cc66");
+  const gd = chalk2.hex("#1a9e4f");
+  const w = chalk2.bold.white;
+  const d = chalk2.dim;
+  console.log("");
+  console.log(g("  \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557"));
+  console.log(g("  \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D") + "  " + w("DevFlow IA"));
+  console.log(g("  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  ") + "  " + gd(`v${CLI_VERSION}`));
+  console.log(g("  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255D  "));
+  console.log(g("  \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551     ") + "  " + d("M\xE9todo + Plataforma de IA"));
+  console.log(g("  \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D     "));
+  console.log("");
+}
 var STATUSLINE_COMMAND = "dd-cli statusline";
 function readGlobalSettings() {
   const settingsPath = getClaudeGlobalSettingsPath();
@@ -5358,7 +5376,7 @@ function writeGlobalSettings(settings) {
   writeFileSync16(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 async function runInstall(opts = {}) {
-  console.log(bold("\nDevFlow IA \u2014 install (global)\n"));
+  printBanner();
   if (!isClaudeCodeInstalled()) {
     printErr(`Claude Code no detectado en ${getClaudeHome()}`);
     printInfo("Instala Claude Code primero: https://claude.com/claude-code");
@@ -5497,7 +5515,7 @@ function renderFlow(ctx) {
   const headerTitle = `Flujo DevFlow IA \xB7 ${ctx.devType}`;
   const subtitle = ctx.source === "session" ? `${ctx.featureId ?? "?"}${ctx.featureName ? " \xB7 " + ctx.featureName : ""}` : "(vista hipot\xE9tica \u2014 sin sesi\xF3n activa)";
   console.log("");
-  console.log(bold(headerTitle));
+  console.log(bold2(headerTitle));
   console.log(dim(subtitle));
   console.log(dim(devTypeBadge(ctx.devType)));
   console.log("");
@@ -5506,7 +5524,7 @@ function renderFlow(ctx) {
     const grp = groupForStage(s);
     if (grp !== lastGroup) {
       if (lastGroup !== "") console.log("");
-      console.log(bold(`  ${grp}`));
+      console.log(bold2(`  ${grp}`));
       lastGroup = grp;
     }
     const icon = statusIcon(s.index, ctx.currentIndex);
@@ -5525,7 +5543,7 @@ function renderFlow(ctx) {
     if (next) {
       const where = next.invokeIn === "claude" ? "Claude Code" : "la terminal";
       console.log("");
-      printInfo(`Tu pr\xF3ximo paso: ejecuta ${bold(next.command)} en ${where}.`);
+      printInfo(`Tu pr\xF3ximo paso: ejecuta ${bold2(next.command)} en ${where}.`);
     }
   } else if (ctx.source === "flag") {
     console.log("");
@@ -5536,10 +5554,10 @@ function renderFlow(ctx) {
 }
 function renderAll() {
   console.log("");
-  console.log(bold("Flujos DevFlow IA \u2014 los 5 dev_types\n"));
+  console.log(bold2("Flujos DevFlow IA \u2014 los 5 dev_types\n"));
   for (const type of DEV_TYPES) {
     const stages = stagesForDevType(type);
-    console.log(bold(devTypeBadge(type)) + dim(`  \xB7 ${stages.length} pasos`));
+    console.log(bold2(devTypeBadge(type)) + dim(`  \xB7 ${stages.length} pasos`));
     const summary = stages.map((s) => s.id).join(" \u2192 ");
     console.log(`  ${dim(summary)}`);
     console.log("");
@@ -5625,7 +5643,7 @@ function getGitUser(projectRoot) {
   }
 }
 function launchClaude(opts) {
-  printInfo(`Lanzando Claude Code con ${bold(opts.skill)}...`);
+  printInfo(`Lanzando Claude Code con ${bold2(opts.skill)}...`);
   printDim(`  Archivo: ${opts.hduPath}`);
   console.log("");
   try {
@@ -5684,7 +5702,7 @@ async function runNewHdu(title, opts = {}) {
     return 1;
   }
   writeFileSync17(hduPath, content, "utf-8");
-  console.log(bold(`
+  console.log(bold2(`
 DevFlow IA \u2014 nueva HDU
 `));
   printOk(`Creada: ${hduPathRel}`);
@@ -5716,7 +5734,7 @@ function check(label, status, detail) {
 }
 function header(title) {
   console.log("");
-  console.log(bold(`  ${title}`));
+  console.log(bold2(`  ${title}`));
   console.log(dim("  " + "\u2500".repeat(52)));
 }
 function formatAge(isoDate) {
@@ -5884,7 +5902,7 @@ async function runHealth(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold("DevFlow IA \u2014 Estado del entorno"));
+  console.log(bold2("DevFlow IA \u2014 Estado del entorno"));
   console.log(dim(`  v${CLI_VERSION} \xB7 ${(/* @__PURE__ */ new Date()).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}`));
   header("M\xC1QUINA");
   check("CLI", "ok", `v${CLI_VERSION}`);
@@ -5907,7 +5925,7 @@ async function runHealth(opts = {}) {
     const health = checkClient(slug);
     const icon = health.status === "ok" ? ok("\u2713") : health.status === "warn" ? warn("\u26A0") : err("\u2717");
     console.log("");
-    console.log(`  ${icon}  ${bold(slug)}`);
+    console.log(`  ${icon}  ${bold2(slug)}`);
     for (const [key, val] of Object.entries(health.details)) {
       console.log(dim(`       ${key.padEnd(14)}${val}`));
     }
@@ -5934,7 +5952,7 @@ async function runHealth(opts = {}) {
   console.log("");
   const hasIssues = slCheck.status !== "ok" || skillsCheck.status !== "ok" || anyClientErr || clientSlugs.length === 0;
   if (!hasIssues) {
-    console.log(`  ${ok("\u2713")}  ${bold("Todo listo.")} Puedes arrancar con: dd-cli start-session <HDU-id>`);
+    console.log(`  ${ok("\u2713")}  ${bold2("Todo listo.")} Puedes arrancar con: dd-cli start-session <HDU-id>`);
   } else {
     printInfo("Hay configuraciones pendientes. Revisa los \u26A0 y \u2717 arriba.");
     console.log(dim("  dd-cli health --check-api  para verificar la conexi\xF3n a las APIs git"));
@@ -6167,7 +6185,7 @@ async function runClientMigrate(slug, opts = {}) {
     if (jsonMode) {
       emitJson(jsonSuccess("client migrate", plan, hasWork ? `dd-cli client migrate ${slug} --apply` : null));
     }
-    console.log(bold(`
+    console.log(bold2(`
 Plan de migraci\xF3n para ${slug}
 `));
     printDim(`  Cache: ${cacheDir}`);
@@ -6559,7 +6577,7 @@ async function runClientDiscover(slug, opts = {}) {
       emitJson(jsonSuccess("client discover", output, `dd-cli client migrate ${slug}`));
     }
     console.log("");
-    console.log(bold(`Discovery para ${slug}`));
+    console.log(bold2(`Discovery para ${slug}`));
     console.log(dimLine(`  Provider:     ${provider.type} @ ${provider.base_url}`));
     console.log(dimLine(`  Group/Org:    ${provider.group_or_org}`));
     console.log(dimLine(`  Repos:        ${discovery.repos.length} total \xB7 ${discovery.active_repos} activos \xB7 ${discovery.inactive_repos} inactivos`));
@@ -6806,7 +6824,7 @@ async function runContextValidate(repoPathArg, opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`Validaci\xF3n del context repo: ${repoRoot}`));
+  console.log(bold2(`Validaci\xF3n del context repo: ${repoRoot}`));
   console.log("");
   for (const f of findings) {
     if (f.level === "ok") printOk(`  ${f.rule}: ${f.message}`);
@@ -6908,7 +6926,7 @@ async function runContextRender(repoPathArg, opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`Render de vistas derivadas: ${repoRoot}`));
+  console.log(bold2(`Render de vistas derivadas: ${repoRoot}`));
   console.log("");
   for (const step of steps) {
     const target = path34.relative(repoRoot, step.to);
@@ -7021,7 +7039,7 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
     emitJson(jsonSuccess("context install-ci", result, action === "conflict" ? `dd-cli context install-ci ${repoPathArg ?? ""} --force` : null));
   }
   console.log("");
-  console.log(bold(`CI install \u2014 provider: ${provider}`));
+  console.log(bold2(`CI install \u2014 provider: ${provider}`));
   switch (action) {
     case "written":
       printOk(`Escrito: ${targetPath}`);
@@ -7092,7 +7110,7 @@ async function runClientNew(slug, opts = {}) {
       return 0;
     }
   }
-  if (!jsonMode) console.log(bold(`
+  if (!jsonMode) console.log(bold2(`
 Onboarding del cliente: ${slug}
 `));
   let name = opts.name;
@@ -7340,7 +7358,7 @@ Onboarding del cliente: ${slug}
     emitJson(jsonSuccess("client new", result, `dd-cli client discover ${slug}`));
   }
   console.log("");
-  printOk(`Cliente ${bold(slug)} registrado. Estado: REGISTERED.`);
+  printOk(`Cliente ${bold2(slug)} registrado. Estado: REGISTERED.`);
   console.log("");
   printInfo("Pr\xF3ximo paso:");
   printDim(`  dd-cli client discover ${slug}`);
@@ -7556,7 +7574,7 @@ async function runClientPublish(slug, opts = {}) {
     }, `cd <repo-de-codigo> && dd-cli init --client=${slug}`));
   }
   console.log("");
-  printOk(`Cliente ${bold(slug)} \u2192 ${bold("READY")}`);
+  printOk(`Cliente ${bold2(slug)} \u2192 ${bold2("READY")}`);
   console.log("");
   printInfo("Para que un dev arranque a programar:");
   printDim(`  cd <repo-de-codigo>`);
@@ -7698,18 +7716,18 @@ async function runClientShow(slug, opts = {}) {
   }
   const badgeFn = stateBadgeColor(stateName);
   console.log("");
-  console.log(`  ${bold(output.name)}    ${badgeFn("\u25CF " + stateName)}`);
+  console.log(`  ${bold2(output.name)}    ${badgeFn("\u25CF " + stateName)}`);
   console.log(`  ${dim(slug)}`);
   if (stackConfig?.client.industry) console.log(`  ${dim(stackConfig.client.industry)}`);
   if (stackConfig?.client.primary_contact) console.log(`  ${dim("Contacto: " + stackConfig.client.primary_contact)}`);
   console.log("");
-  console.log(bold("  CONTEXT REPO"));
+  console.log(bold2("  CONTEXT REPO"));
   console.log(`    ${maskCredentials(entry.context_url)}`);
   console.log(`    ${dim("\xFAltimo sync:    " + formatAge2(entry.last_synced))}${isStale ? "  " + warn("\u26A0 stale") : "  " + ok("\u2713")}`);
   if (marker) console.log(`    ${dim("schema:         v" + marker.schema_version)}`);
   console.log("");
   if (stackConfig) {
-    console.log(bold("  STACK"));
+    console.log(bold2("  STACK"));
     console.log(`    ${"backend".padEnd(11)}${stackConfig.stack.backend_framework}`);
     console.log(`    ${"frontend".padEnd(11)}${stackConfig.stack.frontend_framework}`);
     if (stackConfig.stack.databases.length > 0) {
@@ -7723,25 +7741,25 @@ async function runClientShow(slug, opts = {}) {
     console.log("");
   }
   if (apps.length > 0) {
-    console.log(bold(`  APPS (${apps.length})`));
+    console.log(bold2(`  APPS (${apps.length})`));
     for (const [type, count] of Object.entries(appsByType)) {
       console.log(`    ${("\xB7 " + type).padEnd(20)}${count}`);
     }
     console.log("");
   }
   if (authProfiles.size > 0 || cicdProfiles.size > 0) {
-    console.log(bold("  PROFILES"));
+    console.log(bold2("  PROFILES"));
     if (authProfiles.size > 0) console.log(`    auth        ${[...authProfiles].slice(0, 3).join(", ")}${authProfiles.size > 3 ? ", ..." : ""}`);
     if (cicdProfiles.size > 0) console.log(`    ci/cd       ${[...cicdProfiles].slice(0, 3).join(", ")}${cicdProfiles.size > 3 ? ", ..." : ""}`);
     console.log("");
   }
   if (state) {
-    console.log(bold("  ACTIVIDAD"));
+    console.log(bold2("  ACTIVIDAD"));
     console.log(`    \xFAltimo comando: ${state.last_command} (${formatAge2(state.last_command_at)})`);
     console.log("");
   }
   if (suggestedActions.length > 0) {
-    console.log(bold("  ACCIONES SUGERIDAS"));
+    console.log(bold2("  ACCIONES SUGERIDAS"));
     for (const action of suggestedActions) console.log(`    \u2192 ${action}`);
     console.log("");
   }
@@ -7817,7 +7835,7 @@ async function runClientList(opts = {}) {
     const sync = c3.stale ? warn(formatAge3(c3.last_synced)) : dim(formatAge3(c3.last_synced));
     const stateLabel = c3.state.padEnd(14);
     const appsLabel = `${c3.apps_count} apps`.padEnd(10);
-    console.log(`  ${badge}  ${bold(c3.slug.padEnd(20))}${stateLabel}${appsLabel}${sync}`);
+    console.log(`  ${badge}  ${bold2(c3.slug.padEnd(20))}${stateLabel}${appsLabel}${sync}`);
   }
   console.log("");
   printDim(`  Total: ${clients.length} clientes \xB7 ${clients.reduce((s, c3) => s + c3.apps_count, 0)} apps catalogadas`);
@@ -7861,25 +7879,25 @@ async function runHome(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`  DevFlow IA   \xB7 ${(/* @__PURE__ */ new Date()).toLocaleDateString("es-CL")}`));
+  console.log(bold2(`  DevFlow IA   \xB7 ${(/* @__PURE__ */ new Date()).toLocaleDateString("es-CL")}`));
   console.log("");
-  console.log(bold(`  TUS CLIENTES (${clients.length})`));
+  console.log(bold2(`  TUS CLIENTES (${clients.length})`));
   if (clients.length === 0) {
     printDim("    (ninguno)");
     printInfo("    Registrar el primero: dd-cli client new <slug>");
   } else {
     for (const c3 of clients) {
       const badge = badgeForState(c3.state);
-      console.log(`    ${badge} ${bold(c3.slug.padEnd(15))}${c3.state.padEnd(14)}${dim(formatAge3(c3.last_synced))}`);
+      console.log(`    ${badge} ${bold2(c3.slug.padEnd(15))}${c3.state.padEnd(14)}${dim(formatAge3(c3.last_synced))}`);
     }
   }
   console.log("");
   if (activeSession) {
-    console.log(bold("  ACTIVIDAD"));
+    console.log(bold2("  ACTIVIDAD"));
     console.log(`    sesi\xF3n activa: ${activeSession.feature_id} \xB7 ${activeSession.dev_type}`);
     console.log("");
   }
-  console.log(bold("  SISTEMA"));
+  console.log(bold2("  SISTEMA"));
   console.log(`    CLI v${CLI_VERSION}        ${ok("\u2713")}`);
   console.log(`    Skills ${skillsCount}          ${skillsCount > 0 ? ok("\u2713") : warn("\u26A0")}`);
   console.log(`    Claude Code      ${claudeOk ? ok("\u2713") : err("\u2717")}`);
@@ -8012,7 +8030,7 @@ async function runClientRefresh(slug, opts = {}) {
   }
   const currentCatalog = loadCatalog(cacheDir) ?? CatalogSchema.parse({ apps: [] });
   if (!jsonMode) {
-    console.log(bold(`
+    console.log(bold2(`
 Refresh de ${slug}
 `));
     printInfo(`Re-corriendo discovery contra ${creds.git_host}/${creds.git_group} ...`);
@@ -8193,7 +8211,7 @@ async function runClientOnboardDev(slug, opts = {}) {
     printErr(e.message);
     return 3;
   }
-  if (!jsonMode) console.log(bold(`
+  if (!jsonMode) console.log(bold2(`
 Setup local para ${slug}
 `));
   let contextUrl = opts.contextUrl;
@@ -8352,7 +8370,7 @@ Setup local para ${slug}
     emitJson(jsonSuccess("client onboard-dev", result, `cd <repo-de-codigo> && dd-cli init --client=${slug}`));
   }
   console.log("");
-  printOk(`${bold(clientName)} listo en esta m\xE1quina.`);
+  printOk(`${bold2(clientName)} listo en esta m\xE1quina.`);
   console.log("");
   printInfo("Cuando vayas a programar:");
   printDim(`  cd <repo-de-codigo>`);
@@ -8505,11 +8523,11 @@ async function runClientCompare(slugA, slugB, opts = {}) {
     }));
   }
   console.log("");
-  console.log(`  ${bold(slugA)}  ${bold("vs")}  ${bold(slugB)}    (aspect: ${aspect})`);
+  console.log(`  ${bold2(slugA)}  ${bold2("vs")}  ${bold2(slugB)}    (aspect: ${aspect})`);
   console.log("");
   if (sections["stack"]) {
     const s = sections["stack"];
-    console.log(bold("  STACK"));
+    console.log(bold2("  STACK"));
     if (!s.a || !s.b) {
       printDim(`  (uno de los clientes no tiene stack.yml)`);
     } else {
@@ -8531,7 +8549,7 @@ async function runClientCompare(slugA, slugB, opts = {}) {
   }
   if (sections["auth"]) {
     const s = sections["auth"];
-    console.log(bold("  AUTH PROFILES"));
+    console.log(bold2("  AUTH PROFILES"));
     if (s.diff.shared.length > 0) printDim(`    compartidos: ${s.diff.shared.join(", ")}`);
     if (s.diff.only_a.length > 0) printDim(`    solo en ${slugA}: ${s.diff.only_a.join(", ")}`);
     if (s.diff.only_b.length > 0) printDim(`    solo en ${slugB}: ${s.diff.only_b.join(", ")}`);
@@ -8540,7 +8558,7 @@ async function runClientCompare(slugA, slugB, opts = {}) {
   }
   if (sections["cicd"]) {
     const s = sections["cicd"];
-    console.log(bold("  CI/CD PROFILES"));
+    console.log(bold2("  CI/CD PROFILES"));
     if (s.diff.shared.length > 0) printDim(`    compartidos: ${s.diff.shared.join(", ")}`);
     if (s.diff.only_a.length > 0) printDim(`    solo en ${slugA}: ${s.diff.only_a.join(", ")}`);
     if (s.diff.only_b.length > 0) printDim(`    solo en ${slugB}: ${s.diff.only_b.join(", ")}`);
@@ -8549,7 +8567,7 @@ async function runClientCompare(slugA, slugB, opts = {}) {
   }
   if (sections["apps"]) {
     const s = sections["apps"];
-    console.log(bold("  APPS"));
+    console.log(bold2("  APPS"));
     console.log(`    total         ${slugA}: ${s.total_a}     ${slugB}: ${s.total_b}`);
     const types = /* @__PURE__ */ new Set([...Object.keys(s.a), ...Object.keys(s.b)]);
     for (const type of types) {
@@ -8591,21 +8609,21 @@ async function runErrorCodes(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold("Convenci\xF3n de exit codes (R-4 del redise\xF1o)"));
+  console.log(bold2("Convenci\xF3n de exit codes (R-4 del redise\xF1o)"));
   console.log("");
   console.log("  0  \xC9xito completo");
   for (const code of [1, 2, 3]) {
     console.log(`  ${code}  ${EXIT_CODE_CATEGORIES[code]}`);
   }
   console.log("");
-  console.log(bold(`C\xF3digos de error estables (${ERROR_CODES.length})`));
+  console.log(bold2(`C\xF3digos de error estables (${ERROR_CODES.length})`));
   console.log("");
   console.log("Estos c\xF3digos son contrato \u2014 son consumidos por las skills");
   console.log("y por integraciones de CI. Estables entre versiones del CLI.");
   console.log("");
   for (const exitCode of [3, 2, 1]) {
     if (byExitCode[exitCode].length === 0) continue;
-    console.log(bold(`  Exit ${exitCode} \u2014 ${EXIT_CODE_CATEGORIES[exitCode]}`));
+    console.log(bold2(`  Exit ${exitCode} \u2014 ${EXIT_CODE_CATEGORIES[exitCode]}`));
     for (const code of byExitCode[exitCode]) {
       console.log(`    ${code}`);
     }
@@ -8757,7 +8775,7 @@ async function runHduNew(title, opts = {}) {
       status: "draft"
     }, `dd-cli hdu approve ${nextId} --client=${opts.client}`));
   }
-  printOk(`HDU creada: ${bold(nextId)} \xB7 ${title}`);
+  printOk(`HDU creada: ${bold2(nextId)} \xB7 ${title}`);
   printDim(`  ${getHdusDir(cacheDir)}/${filename}`);
   console.log("");
   printInfo("Pr\xF3ximo: editar el archivo + dd-cli hdu approve cuando est\xE9 lista");
@@ -8812,7 +8830,7 @@ async function runHduList(opts = {}) {
   }
   for (const h of hdus) {
     const fm = h.frontmatter;
-    console.log(`  ${bold(fm.id.padEnd(10))} ${fm.status.padEnd(13)} ${fm.priority.padEnd(8)} ${fm.title}`);
+    console.log(`  ${bold2(fm.id.padEnd(10))} ${fm.status.padEnd(13)} ${fm.priority.padEnd(8)} ${fm.title}`);
     if (fm.apps_affected.length > 0 || fm.assigned_to) {
       const parts = [];
       if (fm.apps_affected.length > 0) parts.push(fm.apps_affected.join(", "));
@@ -8860,7 +8878,7 @@ async function runHduShow(hduId, opts = {}) {
   }
   const fm = hdu.frontmatter;
   console.log("");
-  console.log(`  ${bold(fm.id)} \xB7 ${fm.title}`);
+  console.log(`  ${bold2(fm.id)} \xB7 ${fm.title}`);
   console.log(`  ${fm.status.padEnd(13)} ${fm.priority.padEnd(8)} ${fm.dev_type ?? "(sin dev_type)"}`);
   if (fm.apps_affected.length > 0) printDim(`  apps: ${fm.apps_affected.join(", ")}`);
   if (fm.assigned_to) printDim(`  asignada a: ${fm.assigned_to}`);
@@ -8869,7 +8887,7 @@ async function runHduShow(hduId, opts = {}) {
   console.log(hdu.body);
   if (transitions.length > 0) {
     console.log("");
-    console.log(bold("  Historial:"));
+    console.log(bold2("  Historial:"));
     for (const t of transitions) {
       printDim(`    ${t.ts}  ${t.from ?? "(none)"} \u2192 ${t.to}  por ${t.by}${t.reason ? " \xB7 " + t.reason : ""}`);
     }
@@ -8942,7 +8960,7 @@ async function transitionHdu(command, hduId, toStatus, opts, mutator) {
       status: toStatus
     }));
   }
-  printOk(`${hduId}: ${fromStatus} \u2192 ${bold(toStatus)}`);
+  printOk(`${hduId}: ${fromStatus} \u2192 ${bold2(toStatus)}`);
   return 0;
 }
 async function runHduStart(hduId, opts = {}) {
@@ -9259,12 +9277,12 @@ async function runHduNext(opts = {}) {
   }
   const fm = top.hdu.frontmatter;
   console.log("");
-  console.log(`Te sugiero: ${bold(fm.id)} \xB7 ${fm.title}`);
+  console.log(`Te sugiero: ${bold2(fm.id)} \xB7 ${fm.title}`);
   printDim(`  prioridad: ${fm.priority}    dev_type: ${fm.dev_type ?? "(sin)"}`);
   if (fm.apps_affected.length > 0) printDim(`  apps: ${fm.apps_affected.join(", ")}`);
   console.log("");
   if (opts.explain) {
-    console.log(bold("  Score breakdown:"));
+    console.log(bold2("  Score breakdown:"));
     printDim(`    prioridad:              ${top.breakdown.priority}`);
     printDim(`    app match:              ${top.breakdown.app_match}`);
     printDim(`    continuidad dev_type:   ${top.breakdown.dev_type_continuity}`);
@@ -9273,7 +9291,7 @@ async function runHduNext(opts = {}) {
     printDim(`    total:                  ${top.breakdown.total}`);
     console.log("");
     if (scored.length > 1) {
-      console.log(bold(`  Otras ${scored.length - 1} candidatas:`));
+      console.log(bold2(`  Otras ${scored.length - 1} candidatas:`));
       for (const s of scored.slice(1, 4)) {
         printDim(`    ${s.hdu.frontmatter.id} (${s.breakdown.total}): ${s.hdu.frontmatter.title}`);
       }
@@ -9439,7 +9457,7 @@ Generado por dd-cli hdu apply-merge (S5-4).`;
     }));
   }
   console.log("");
-  console.log(bold(`HDU apply-merge en ${repoRoot}`));
+  console.log(bold2(`HDU apply-merge en ${repoRoot}`));
   for (const a of actions) {
     const marker = a.applied ? printOk : printInfo;
     marker(`  ${a.hdu_id}: ${a.from} \u2192 ${a.to}${apply ? "" : " (dry-run)"}`);
@@ -9595,37 +9613,37 @@ async function runStats(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`M\xE9tricas \u2014 ${opts.client} (per\xEDodo: ${periodStr})`));
+  console.log(bold2(`M\xE9tricas \u2014 ${opts.client} (per\xEDodo: ${periodStr})`));
   console.log("");
-  console.log(bold("  Throughput"));
+  console.log(bold2("  Throughput"));
   console.log(`    cerradas:           ${closedInPeriod}`);
   console.log(`    canceladas:         ${cancelledInPeriod}`);
   console.log(`    cancellation rate:  ${(cancellationRate * 100).toFixed(1)}%`);
   console.log("");
-  console.log(bold("  Estados actuales"));
+  console.log(bold2("  Estados actuales"));
   for (const [status, count] of Object.entries(byStatus)) {
     console.log(`    ${status.padEnd(13)} ${count}`);
   }
   console.log("");
   if (leadTimes.length > 0) {
-    console.log(bold("  Lead time (d\xEDas)"));
+    console.log(bold2("  Lead time (d\xEDas)"));
     console.log(`    mediana / p90:      ${metrics.lead_time_days.median.toFixed(1)} / ${metrics.lead_time_days.p90.toFixed(1)}`);
     console.log(`    samples:            ${metrics.lead_time_days.samples}`);
     console.log("");
-    console.log(bold("  Cycle time (d\xEDas)"));
+    console.log(bold2("  Cycle time (d\xEDas)"));
     console.log(`    mediana / p90:      ${metrics.cycle_time_days.median.toFixed(1)} / ${metrics.cycle_time_days.p90.toFixed(1)}`);
     console.log(`    samples:            ${metrics.cycle_time_days.samples}`);
     console.log("");
   }
   if (Object.keys(mixPct).length > 0) {
-    console.log(bold("  Mix dev_type (sobre las cerradas)"));
+    console.log(bold2("  Mix dev_type (sobre las cerradas)"));
     for (const [dt, { count, pct }] of Object.entries(mixPct)) {
       console.log(`    ${dt.padEnd(22)} ${count}  (${(pct * 100).toFixed(0)}%)`);
     }
     console.log("");
   }
   if (opts.by === "dev" && Object.keys(byAssignee).length > 0) {
-    console.log(bold("  Por dev"));
+    console.log(bold2("  Por dev"));
     for (const [email, count] of Object.entries(byAssignee)) {
       console.log(`    ${email.padEnd(30)} ${count}`);
     }
@@ -9696,7 +9714,7 @@ async function runSprintNew(opts = {}) {
   if (jsonMode) {
     emitJson(jsonSuccess("sprint new", { id, start, end, duration_days: days }));
   }
-  printOk(`Sprint ${bold(id)} creado para ${r.slug}.`);
+  printOk(`Sprint ${bold2(id)} creado para ${r.slug}.`);
   printDim(`  rango:  ${start} \u2192 ${end}  (${days} d\xEDas)`);
   if (opts.goal) printDim(`  goal:   ${opts.goal}`);
   printDim(`  current_sprint apuntando a ${id}`);
@@ -9741,17 +9759,17 @@ async function runSprintShow(opts = {}) {
     emitJson(jsonSuccess("sprint show", { ...sprint, hdus_detail: hduStatus }));
   }
   console.log("");
-  console.log(`  ${bold(sprint.id)}    ${bold(sprint.client)}`);
+  console.log(`  ${bold2(sprint.id)}    ${bold2(sprint.client)}`);
   printDim(`  rango:  ${sprint.start} \u2192 ${sprint.end}`);
   if (sprint.goal) printDim(`  goal:   ${sprint.goal}`);
   console.log("");
-  console.log(bold(`  HDUs (${hduStatus.length})`));
+  console.log(bold2(`  HDUs (${hduStatus.length})`));
   if (hduStatus.length === 0) {
     printDim("  (ninguna asignada al sprint todav\xEDa)");
   } else {
     for (const h of hduStatus) {
       const assignee = h.assigned_to ? ` \u2192 ${h.assigned_to}` : "";
-      console.log(`    ${bold(h.id.padEnd(10))} ${h.status.padEnd(13)} ${h.title}${assignee}`);
+      console.log(`    ${bold2(h.id.padEnd(10))} ${h.status.padEnd(13)} ${h.title}${assignee}`);
     }
   }
   return 0;
@@ -9826,7 +9844,7 @@ async function mutateSprintHdus(action, hduId, opts) {
   if (jsonMode) {
     emitJson(jsonSuccess(`sprint ${action}`, { sprint: sprintId, hdu: hduId, total_hdus: sprint.hdus.length }));
   }
-  printOk(`${action === "add" ? "Agregada" : "Removida"} ${bold(hduId)} ${action === "add" ? "al" : "del"} ${bold(sprintId)} (${sprint.hdus.length} HDUs total).`);
+  printOk(`${action === "add" ? "Agregada" : "Removida"} ${bold2(hduId)} ${action === "add" ? "al" : "del"} ${bold2(sprintId)} (${sprint.hdus.length} HDUs total).`);
   return 0;
 }
 async function runSprintClose(opts = {}) {
@@ -9874,9 +9892,9 @@ async function runSprintClose(opts = {}) {
     }));
   }
   console.log("");
-  printOk(`${bold(id)} cerrado.`);
+  printOk(`${bold2(id)} cerrado.`);
   console.log("");
-  console.log(bold("  Cierre"));
+  console.log(bold2("  Cierre"));
   console.log(`    HDUs total:     ${hdusInSprint.length}`);
   console.log(`    cerradas:       ${done}`);
   console.log(`    abiertas:       ${open}`);
@@ -9943,7 +9961,7 @@ async function runSprintBurndown(opts = {}) {
     }));
   }
   console.log("");
-  console.log(`  ${bold(`Burndown ${id}`)}    ${sprint.start} \u2192 ${sprint.end}`);
+  console.log(`  ${bold2(`Burndown ${id}`)}    ${sprint.start} \u2192 ${sprint.end}`);
   console.log("");
   console.log(`  HDUs total: ${totalHdus}`);
   console.log("");
@@ -9952,7 +9970,7 @@ async function runSprintBurndown(opts = {}) {
     return 0;
   }
   const maxBarLen = 30;
-  console.log(bold(`  d\xEDa   fecha       remaining  ideal`));
+  console.log(bold2(`  d\xEDa   fecha       remaining  ideal`));
   for (const point of burndown) {
     const barLen = Math.round(point.remaining / totalHdus * maxBarLen);
     const bar = "\u2588".repeat(Math.max(0, barLen));
@@ -10001,7 +10019,7 @@ async function runGuide(topic, opts = {}) {
       }));
     }
     console.log("");
-    console.log(bold("Gu\xEDas disponibles:"));
+    console.log(bold2("Gu\xEDas disponibles:"));
     for (const t of Object.keys(TOPICS)) {
       console.log(`  dd-cli guide ${t}`);
     }
@@ -10066,7 +10084,7 @@ async function runToday(opts = {}) {
     return 0;
   }
   console.log("");
-  console.log(`  ${bold("Today")}    ${dim((/* @__PURE__ */ new Date()).toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }))}`);
+  console.log(`  ${bold2("Today")}    ${dim((/* @__PURE__ */ new Date()).toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }))}`);
   if (user) printDim(`  ${user}`);
   console.log("");
   if (state.session?.active) {
@@ -10074,8 +10092,8 @@ async function runToday(opts = {}) {
     const hrs = Math.floor(s.duration_minutes / 60);
     const mins = s.duration_minutes % 60;
     const durStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-    console.log(bold("  SESI\xD3N ACTIVA"));
-    console.log(`    ${devTypeBadge(s.dev_type)} ${bold(s.hdu_id ?? "?")}  ${dim("\xB7 " + durStr)}`);
+    console.log(bold2("  SESI\xD3N ACTIVA"));
+    console.log(`    ${devTypeBadge(s.dev_type)} ${bold2(s.hdu_id ?? "?")}  ${dim("\xB7 " + durStr)}`);
     if (s.journey) {
       printDim(`    paso ${s.journey.current_step}/${s.journey.total_steps}: ${s.journey.current_skill ?? "?"} \u2192 ${s.journey.next_skill ?? "fin"}`);
     }
@@ -10089,11 +10107,11 @@ async function runToday(opts = {}) {
   const inProgress = state.queue.in_progress;
   const allQueue = [...inProgress, ...approved];
   if (allQueue.length > 0) {
-    console.log(bold(`  TU QUEUE (${allQueue.length} HDU${allQueue.length > 1 ? "s" : ""})`));
+    console.log(bold2(`  TU QUEUE (${allQueue.length} HDU${allQueue.length > 1 ? "s" : ""})`));
     for (const h of allQueue.slice(0, 10)) {
       const prio = h.priority.padEnd(8);
       const statusTag = inProgress.some((i) => i.id === h.id) ? dim("[activa] ") : "";
-      console.log(`    ${bold(h.id.padEnd(10))} ${prio} ${dim(h.client.padEnd(15))} ${statusTag}${h.title}`);
+      console.log(`    ${bold2(h.id.padEnd(10))} ${prio} ${dim(h.client.padEnd(15))} ${statusTag}${h.title}`);
     }
     if (allQueue.length > 10) printDim(`    ... y ${allQueue.length - 10} m\xE1s`);
     if (state.queue.next_suggested) {
@@ -10105,7 +10123,7 @@ async function runToday(opts = {}) {
     console.log("");
   }
   if (state.alerts.length > 0) {
-    console.log(bold("  ALERTAS"));
+    console.log(bold2("  ALERTAS"));
     for (const a of state.alerts) {
       const icon = a.level === "warn" ? warn("\u26A0") : a.level === "err" ? warn("\u2717") : ok("\xB7");
       console.log(`    ${icon} ${a.message}`);
@@ -10197,7 +10215,7 @@ async function runInbox(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`  \u{1F4EC} INBOX  (${filtered.length} ${opts.all ? "totales" : "sin leer"})`));
+  console.log(bold2(`  \u{1F4EC} INBOX  (${filtered.length} ${opts.all ? "totales" : "sin leer"})`));
   console.log("");
   if (filtered.length === 0) {
     printDim("  No hay eventos.");
@@ -10347,7 +10365,7 @@ async function runTelemetryStatus(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold("  Telemetr\xEDa"));
+  console.log(bold2("  Telemetr\xEDa"));
   console.log(`    estado:    ${config.enabled ? "\u{1F7E2} habilitada" : "\u26AA deshabilitada"}`);
   console.log(`    scope:     ${config.scope}`);
   if (config.enabled_at) console.log(`    desde:     ${config.enabled_at}`);
@@ -10383,7 +10401,7 @@ async function runTelemetryReport(opts = {}) {
     }));
   }
   console.log("");
-  console.log(bold(`  Reporte de telemetr\xEDa (${periodStr})`));
+  console.log(bold2(`  Reporte de telemetr\xEDa (${periodStr})`));
   console.log("");
   if (stats.total_events === 0) {
     printDim("  No hay eventos en el per\xEDodo.");
@@ -10395,7 +10413,7 @@ async function runTelemetryReport(opts = {}) {
   console.log(`  Avg duration:      ${stats.avg_duration_ms} ms`);
   console.log(`  Archivo:           ${(stats.file_size_bytes / 1024).toFixed(1)} KB`);
   console.log("");
-  console.log(bold("  Por comando"));
+  console.log(bold2("  Por comando"));
   const sortedCmds = Object.entries(stats.by_command).sort((a, b) => b[1] - a[1]).slice(0, 10);
   for (const [cmd, count] of sortedCmds) {
     console.log(`    ${cmd.padEnd(28)} ${count}`);
@@ -10404,13 +10422,13 @@ async function runTelemetryReport(opts = {}) {
     printDim(`    ... y ${Object.keys(stats.by_command).length - 10} comandos m\xE1s`);
   }
   console.log("");
-  console.log(bold("  Por exit code"));
+  console.log(bold2("  Por exit code"));
   for (const [code, count] of Object.entries(stats.by_exit_code).sort()) {
     console.log(`    exit ${code}: ${count}`);
   }
   console.log("");
   if (Object.keys(stats.by_error_code).length > 0) {
-    console.log(bold("  Errores por c\xF3digo (top 10)"));
+    console.log(bold2("  Errores por c\xF3digo (top 10)"));
     const sortedErrs = Object.entries(stats.by_error_code).sort((a, b) => b[1] - a[1]).slice(0, 10);
     for (const [code, count] of sortedErrs) {
       console.log(`    ${code.padEnd(28)} ${count}`);

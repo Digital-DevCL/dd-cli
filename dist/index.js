@@ -178,8 +178,7 @@ function detectFlowState({
   const needsBaseline = devType !== null && requiresBaseline(devType);
   const specPath = path.join(projectRoot, ".ai/SPEC.md");
   const hasSpec = existsSync(specPath) && statSync(specPath).size > 100;
-  const isLocked = session.dev_type_locked === true;
-  if (hasSpec && isLocked) {
+  if (hasSpec) {
     const changes = globbySync("openspec/changes/*/tasks.md", { cwd: projectRoot });
     if (changes.length > 0) return "change_active";
     return "spec_ready";
@@ -300,13 +299,14 @@ var RULES = {
   BLOCK_NEW_APP: {
     id: "BLOCK_NEW_APP",
     applies_to: NON_GREENFIELD,
-    severity: "block",
+    severity: "warn",
+    // E-01: era 'block', era falso positivo — es un recordatorio, no un bloqueo
     evaluate: ({ session }) => {
       return {
         rule_id: "BLOCK_NEW_APP",
-        passed: false,
-        severity: "block",
-        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. \`/new-app\` solo aplica a greenfield.`
+        passed: true,
+        severity: "warn",
+        message: `Esta HDU es ${session.dev_type}. Usa el repo existente. /new-app solo aplica a greenfield.`
       };
     }
   },

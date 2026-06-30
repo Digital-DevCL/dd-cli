@@ -16,13 +16,31 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
+import chalk from 'chalk';
 import {
   getClaudeHome,
   getClaudeGlobalSettingsPath,
   isClaudeCodeInstalled,
 } from '../utils/paths.js';
-import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
+import { printOk, printWarn, printErr, printInfo, printDim } from '../utils/output.js';
 import { runSkillsInstall } from './skills-cmd.js';
+import { CLI_VERSION } from '../index.js';
+
+function printBanner(): void {
+  const g  = chalk.hex('#00cc66');
+  const gd = chalk.hex('#1a9e4f');
+  const w  = chalk.bold.white;
+  const d  = chalk.dim;
+
+  console.log('');
+  console.log(g('  ██████╗ ███████╗'));
+  console.log(g('  ██╔══██╗██╔════╝') + '  ' + w('DevFlow IA'));
+  console.log(g('  ██║  ██║█████╗  ') + '  ' + gd(`v${CLI_VERSION}`));
+  console.log(g('  ██║  ██║██╔══╝  '));
+  console.log(g('  ██████╔╝██║     ') + '  ' + d('Método + Plataforma de IA'));
+  console.log(g('  ╚═════╝ ╚═╝     '));
+  console.log('');
+}
 
 export interface InstallOptions {
   force?: boolean;
@@ -50,7 +68,7 @@ function writeGlobalSettings(settings: Record<string, unknown>): void {
 }
 
 export async function runInstall(opts: InstallOptions = {}): Promise<number> {
-  console.log(bold('\nDevFlow IA — install (global)\n'));
+  printBanner();
 
   if (!isClaudeCodeInstalled()) {
     printErr(`Claude Code no detectado en ${getClaudeHome()}`);

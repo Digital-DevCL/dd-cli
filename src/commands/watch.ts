@@ -71,7 +71,9 @@ function countTasks(projectRoot: string, changeName: string): { done: number; to
 }
 
 function renderLines(projectRoot: string): string[] {
-  const W = 78; // ancho de la caja
+  // W-01: ancho adaptativo al terminal; mínimo 60, máximo 100
+  const termW = process.stdout.columns ?? 80;
+  const W = Math.min(100, Math.max(60, termW - 4));
 
   let session;
   try {
@@ -88,7 +90,11 @@ function renderLines(projectRoot: string): string[] {
 
   const flowState = detectFlowState({ projectRoot, session });
   const ctx = session.dev_type ? getStageContext(session, flowState) : null;
-  const feature = `${session.feature_id ?? '?'} · ${session.feature_name ?? ''}`;
+  const rawFeature = `${session.feature_id ?? '?'} · ${session.feature_name ?? ''}`;
+  const maxFeature = W - 30; // dejar espacio para spec part
+  const feature = rawFeature.length > maxFeature
+    ? rawFeature.slice(0, maxFeature - 1) + '…'
+    : rawFeature;
 
   // Línea 1 — contexto
   const changeName = activeChangeName(projectRoot);
