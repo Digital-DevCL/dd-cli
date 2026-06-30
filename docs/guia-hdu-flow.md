@@ -269,4 +269,4 @@ exit code 3 + listado de las legales desde el estado actual.
 ---
 
 **Última actualización:** Sprint 5 (v0.7.0). Para sugerencias:
-`/devflow-ia:troubleshoot` o issue en `github.com/jcharti/dd-cli`.
+`/devflow-ia:troubleshoot` o issue en `github.com/Digital-DevCL/dd-cli`.

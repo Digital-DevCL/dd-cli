@@ -4,7 +4,7 @@
 > acá está todo lo que necesitás saber para usar el CLI en tu trabajo diario.
 > No requiere documentación técnica previa.
 >
-> **Versión:** v0.6.0 (junio 2026). Cambios mayores vs v0.5.x: surface
+> **Versión:** v0.9.0 (junio 2026). Cambios mayores vs v0.5.x: surface
 > **skills-first** (decisión D-8 del rediseño), 4 skills nuevas para el
 > día a día del dev, namespace `dd-cli hdu` reemplaza `new-hdu`, HDUs
 > viven en el context repo del cliente. Detalle completo en `CHANGELOG.md`.
@@ -53,11 +53,11 @@ dd-cli watch                 → barra detallada (pane separado, opcional)
 
 ```bash
 # Instalar desde el release público
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.6.0/devflow-ia-cli-0.6.0.tgz
+npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
 
 # Verificar
 dd-cli --version
-# → 0.6.0
+# → 0.9.0
 
 # Activar la statusline en Claude Code (una sola vez por máquina)
 dd-cli install
@@ -68,7 +68,7 @@ dd-cli install
 > Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese
 > momento, Claude Code muestra en su barra el estado de tu sesión en
 > cualquier proyecto. Si no estás en un proyecto DevFlow IA, solo muestra
-> `DevFlow IA · v0.6.0 ready`. Para desactivarla: `dd-cli uninstall`.
+> `DevFlow IA · v0.9.0 ready`. Para desactivarla: `dd-cli uninstall`.
 
 ### Setup del cliente (una vez por máquina por empresa)
 
@@ -109,7 +109,7 @@ DevFlow IA — init
 ✓ Creado .devflow/config.yml (identidad repo↔cliente)
 ✓ Creado .devflow/session.json inicial (schema_version: 2)
 ✓ Skills instaladas en ~/.claude/commands/devflow-ia
-  28 skills (v0.6.0)
+  28 skills (v0.9.0)
 ✓ Hooks configurados en .claude/settings.json
 ✓ CLAUDE.md generado con contexto del cliente embebido
 
@@ -853,7 +853,7 @@ persona.
 **¿Cómo sé qué versión de skills tengo instalada?**
 ```bash
 dd-cli health
-# Skills: 28 skills · v0.6.0
+# Skills: 28 skills · v0.9.0
 ```
 
 **¿Las HDUs viven en mi repo de código?**
