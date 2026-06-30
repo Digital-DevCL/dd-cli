@@ -71,27 +71,19 @@ Criterio: UX, enforcement de flujo, ritual diario. No bloquean uso pero degradan
 
 ---
 
-## v0.9.0 — Bugs encontrados en pruebas reales (IPRSA, 2026-06-29)
+## ~~v0.9.0~~ ✅ RESUELTO (commit 75e13fa)
+
+Origen: pruebas reales IPRSA + Digital-Dev (2026-06-29/30).
 
 ### Enforcement / flow_state
 
 | # | Área | Descripción | Fix |
 |---|------|-------------|-----|
-| E-01 | Blocker mal clasificado | La regla "Esta HDU es brownfield-feature, `/new-app` solo aplica a greenfield" aparece como `🛑 precondición pendiente` en `dd-cli status` y `watch`, incluso cuando el dev ya está en `repo_mapped` o más avanzado y no tiene intención de usar `/new-app`. Es un recordatorio informativo, no un blocker real. | Reclasificar la regla como `level: 'info'` o `'warn'` en vez de `'blocker'`. Solo debería bloquear si el dev intenta ejecutar `/new-app` explícitamente en una sesión brownfield. |
-| E-02 | `flow_state` no avanza a `spec_ready` con SPEC existente | Cuando `.ai/SPEC.md` existe pero `dev_type_locked: false`, `detectFlowState()` devuelve `repo_mapped` en lugar de `spec_ready`. El dev termina viendo paso 3/8 aunque ya generó el SPEC. | La skill `/new-spec` debe escribir `dev_type_locked: true` + `dev_type_locked_at` en `session.json` al finalizar. Complementario: `detectFlowState()` puede tener un fallback — si SPEC existe y `flow_state` sería `started`/`repo_mapped`, avanzar igual a `spec_ready` independientemente del lock. |
+| E-01 | ✅ | Blocker mal clasificado — `BLOCK_NEW_APP` reclasificada `severity: warn` + `passed: true` |
+| E-02 | ✅ | `flow_state` no avanzaba con SPEC existente — `detectFlowState()` ya no requiere `dev_type_locked` |
 
-| E-03 | Enforcement / opsx | Skills `/opsx:propose` y `/opsx:apply` se ejecutan sin verificar que el SPEC esté bloqueado (`dev_type_locked: true`). El trabajo se hace pero `detectFlowState()` no detecta `change_active` si el lock falta (depende de E-02). Impacto: state tracking desfasado, statusline muestra paso incorrecto, métricas de sesión erróneas. | Derivado de E-02: cuando `/new-spec` setee `dev_type_locked: true` correctamente, esta precondición existe implícitamente. Complementario: las skills `/opsx:*` pueden advertir si `dev_type_locked` es false antes de proceder. |
-
-### UX / Watch
-
-| # | Área | Descripción | Fix |
-|---|------|-------------|-----|
-| W-01 | `dd-cli watch` — desborde de nombre largo | El marco del watch tiene ancho fijo. Cuando el nombre de la HDU es largo (ej: "Autenticación Google SSO con invitaciones y perfiles de usuario") el texto desborda o queda cortado. | Adaptar el ancho del marco al ancho del terminal (`process.stdout.columns`) con un mínimo de 60 y un máximo de 100. Truncar el nombre con `…` si supera el ancho disponible. |
-
-### UX / Install
-
-| # | Área | Descripción | Fix |
-|---|------|-------------|-----|
-| I-01 | `dd-cli install` — sin banner visual | La instalación arranca sin identidad visual. | Mostrar banner ASCII con "DevFlow IA" en tonos verdes al iniciar `dd-cli install`. Usar `chalk.green` / `chalk.hex('#00cc66')`. El banner reemplaza el `bold('\nDevFlow IA — install (global)\n')` actual. |
+| E-03 | ✅ | Derivado de E-02 — resuelto con el mismo fix |
+| W-01 | ✅ | Watch ancho fijo → adaptativo `process.stdout.columns` + truncate con `…` |
+| I-01 | ✅ | Banner ASCII monograma DF verde en `dd-cli install` |
 
 _Agregar nuevos ítems a medida que se encuentran en pruebas._
