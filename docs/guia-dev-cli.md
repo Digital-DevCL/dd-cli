@@ -4,10 +4,18 @@
 > acá está todo lo que necesitás saber para usar el CLI en tu trabajo diario.
 > No requiere documentación técnica previa.
 >
-> **Versión:** v0.9.0 (junio 2026). Cambios mayores vs v0.5.x: surface
+> **Versión:** v0.9.1 (julio 2026). Cambios mayores vs v0.5.x: surface
 > **skills-first** (decisión D-8 del rediseño), 4 skills nuevas para el
 > día a día del dev, namespace `dd-cli hdu` reemplaza `new-hdu`, HDUs
 > viven en el context repo del cliente. Detalle completo en `CHANGELOG.md`.
+>
+> **Novedades v0.9.1:** `/devflow-ia:start-work` es ahora el punto de
+> entrada único — invocalo sin argumentos y detecta en qué paso estás
+> (máquina, repo, HDU) antes de arrancar. `dd-cli reclassify` funciona
+> en modo local. Nuevo `dd-cli session-repair` para `session.json`
+> corrupto. `dd-cli watch` muestra el cliente conectado (multi-cliente)
+> y la frescura del context repo. `dd-cli help-ctx --all` muestra las
+> skills agrupadas por rol y en orden de flujo, no un listado plano.
 
 ---
 
@@ -19,7 +27,8 @@
 ```
 mañana:        /devflow-ia:daily-standup     ver mi día
 decidir:       /devflow-ia:pick-next         qué HDU tomar
-arrancar:      /devflow-ia:start-work HDU-N  claim + start + abrir repo
+arrancar:      /devflow-ia:start-work         punto de entrada único: detecta
+                                              máquina/repo/HDU, con o sin HDU-N
 ... codear con Claude (skills del método: /new-spec, /opsx:apply, etc.) ...
 cerrar día:    /devflow-ia:end-day           review/close/pausa + commit msg
 ```
@@ -40,11 +49,13 @@ dd-cli client onboard-dev    → cliente Setup local con tu PAT propio
 
 dd-cli today                 → ¿hoy?  /devflow-ia:daily-standup
 dd-cli hdu next              → ¿qué?  /devflow-ia:pick-next
-dd-cli start-session         → inicio /devflow-ia:start-work HDU-N
+dd-cli start-session         → inicio /devflow-ia:start-work (con o sin HDU-N)
 dd-cli status                → ¿dónde?
 dd-cli hdu review/close      → cierre /devflow-ia:end-day
 dd-cli inbox                 → eventos asincrónicos (notificaciones)
-dd-cli watch                 → barra detallada (pane separado, opcional)
+dd-cli watch                 → barra detallada + cliente + ayuda (pane separado)
+dd-cli help-ctx --all        → skills por rol, en orden de flujo
+dd-cli session-repair        → repara session.json si el schema falla
 ```
 
 ---
@@ -179,6 +190,12 @@ Score breakdown:
 ```
 ❯ /devflow-ia:start-work HDU-128
 ```
+
+> `/devflow-ia:start-work` también funciona **sin argumentos** — es el
+> punto de entrada único a Capa 4. Corre `dd-cli health --json` y resuelve
+> lo que falte antes de llegar acá: máquina sin cliente registrado, repo
+> sin conectar, skills faltantes, o sin HDU elegida (delega a `/pick-next`).
+> Si ya tenés el HDU-N a mano, como en el ejemplo, salta directo a este paso.
 
 La skill ejecuta por debajo:
 
@@ -539,13 +556,21 @@ dd-cli watch
 
 ```
 ╔══════════════════════════════════════════════════════════════════════╗
-║ DevFlow IA │ HDU-128 · Auth SSO │ spec: auth-sso-portal             ║
-║ tasks: ███████░░░░░  3/6 │ 2h 15m │ local                           ║
-║ ⬢ brownfield-feature · paso 5/8: /opsx:apply → /release-check       ║
+║ [empresa] DevFlow IA │ HDU-128 · Auth SSO │ spec: auth-sso-portal    ║
+║ tasks: ███████░░░░░  3/6 │ 2h 15m │ local                            ║
+║ ⬢ brownfield-feature · paso 5/8: /opsx:apply → /release-check        ║
+║ ayuda: dd-cli help-ctx · por rol: dd-cli guide roles · Ctrl+C salir  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 Se actualiza cada 5 segundos. `Ctrl+C` para cerrar.
+
+`[empresa]` solo aparece si el repo está conectado a un cliente
+(`.devflow/config.yml`, lo genera `dd-cli init --client=<empresa>`) — útil
+si trabajás varios clientes en paralelo y tenés varios panes abiertos.
+Al lado del cliente se muestra hace cuánto se sincronizó su context repo
+(`[empresa · sync: 2h]`); si pasaron más de 7 días se resalta en amarillo
+con `⚠` — corré `dd-cli pull-context <empresa>` para refrescarlo.
 
 ---
 
@@ -763,7 +788,7 @@ Sigue funcionando con warning de deprecación pero migrá a `dd-cli hdu new`.
 |---|---|---|
 | `/devflow-ia:daily-standup` | Ver mi día | `dd-cli today` + `inbox` |
 | `/devflow-ia:pick-next` | Decidir qué HDU tomar | `dd-cli hdu next --explain` |
-| `/devflow-ia:start-work HDU-N` | Arrancar trabajo | `hdu claim` + `hdu start` + `start-session` |
+| `/devflow-ia:start-work [HDU-N]` | Punto de entrada único — sin HDU-N detecta máquina/repo/HDU | `hdu claim` + `hdu start` + `start-session` |
 | `/devflow-ia:end-day` | Cerrar el día | `hdu review`/`close` + `end-session` |
 | `/devflow-ia:troubleshoot` | Algo falló | `dd-cli doctor` + `state.json` |
 
@@ -794,8 +819,11 @@ Sigue funcionando con warning de deprecación pero migrá a `dd-cli hdu new`.
 | `dd-cli stats --client=<empresa> --period=30d` | Métricas: throughput, lead time, mix |
 | `dd-cli watch` | Barra detallada en otro pane |
 | `dd-cli doctor` | Diagnóstico del entorno |
+| `dd-cli help-ctx --all` | Skills por rol, en orden de flujo (no un listado plano) |
+| `dd-cli reclassify --to=<tipo> --reason="..."` | Cambia el dev_type post-lock (modo local o platform) |
+| `dd-cli session-repair` | Repara `session.json` cuando no cumple el schema (ej. tras editarlo a mano) |
 | `dd-cli error-codes` | Contrato estable de exit codes y códigos de error |
-| `dd-cli guide hdu` | Abre la guía del flujo HDU paginada en terminal |
+| `dd-cli guide hdu` \| `guide roles` \| `guide dev` | Abre guías paginadas en terminal |
 | `dd-cli flow --all` | Ver el viaje completo por dev_type |
 
 ### Crear HDUs

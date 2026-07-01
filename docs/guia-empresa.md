@@ -753,7 +753,18 @@ Un dev nuevo en un equipo que ya usa DevFlow IA necesita:
 # 1. Instalar el CLI
 npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
 dd-cli install
+```
 
+> **Desde v0.9.1**, los pasos 2-4 (setup del cliente, `init --client`,
+> elegir HDU) ya no hacen falta a mano — `/devflow-ia:start-work` sin
+> argumentos es el punto de entrada único: corre `dd-cli health --json`,
+> detecta que la máquina no tiene el cliente registrado ni el repo
+> conectado, y guía al dev paso a paso (pidiendo la URL del context repo
+> + su PAT propio, después `init --client`, después delega a `pick-next`
+> si no hay HDU elegida) antes de llegar a `start-session`. Los comandos
+> de abajo siguen siendo válidos — son lo que la skill ejecuta por debajo.
+
+```bash
 # 2. Setup del cliente (token read-only PROPIO, NO compartir el del TL)
 dd-cli client onboard-dev <empresa> \
   --context-url=<URL del context repo, te la pasa el TL> \
@@ -767,9 +778,11 @@ dd-cli init --client=<empresa>
 dd-cli flow --all
 ```
 
-Y en Claude Code (skill-first, recomendado):
+Y en Claude Code (skill-first, recomendado — con o sin los pasos manuales de arriba):
 
 ```
+❯ /devflow-ia:start-work
+  → sin HDU-N: detecta el estado (máquina, repo, HDU) y guía al dev.
 ❯ /devflow-ia:daily-standup
   → muestra su queue, no tiene sesión activa todavía.
 ❯ /devflow-ia:pick-next
@@ -868,7 +881,7 @@ método. Las 8 nuevas vs v0.5.x están marcadas con ⭐:
 |---|---|---|
 | ⭐ `/devflow-ia:daily-standup` | haiku | Ritual matutino: sesión + queue + alertas. Compone `dd-cli today` + `inbox`. |
 | ⭐ `/devflow-ia:pick-next` | haiku | "¿Qué tomo ahora?" Invoca `dd-cli hdu next --explain` y narra el scoring. |
-| ⭐ `/devflow-ia:start-work` | haiku | Arrancar HDU: claim + start + apertura del repo + `start-session`. |
+| ⭐ `/devflow-ia:start-work` | haiku | Punto de entrada único a Capa 4 (v0.9.1). Sin HDU-N: detecta máquina/repo/HDU vía `dd-cli health --json`. Con HDU-N: claim + start + apertura del repo + `start-session`. |
 | ⭐ `/devflow-ia:end-day` | sonnet | Cerrar día: review/close/pausa/bloqueado + sugerencia de commit. |
 
 ### Análisis de repo y SPEC (devs)

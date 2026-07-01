@@ -59,13 +59,19 @@ dd-cli sprint add <HDU-N>                   → agrega HDUs al sprint
 /devflow-ia:pick-next     → scoring de qué HDU tomar
 ```
 
-### Arrancar una HDU (en Claude Code → terminal)
+### Arrancar (en Claude Code → terminal) — punto de entrada único
+
+`/devflow-ia:start-work` es el punto de entrada único a Capa 4, con o sin HDU elegida:
 
 ```
-/devflow-ia:start-work HDU-N
-  └── dd-cli hdu claim <HDU-N>        → auto-asignación
-  └── dd-cli hdu start <HDU-N>        → approved → in-progress
-  └── dd-cli start-session <HDU-N>    → abre sesión de trabajo
+/devflow-ia:start-work                → sin HDU-N: corre dd-cli health --json,
+  │                                      resuelve máquina sin registrar / repo sin
+  │                                      conectar / skills faltantes, y delega a
+  │                                      /pick-next si todavía no hay HDU elegida
+  └── /devflow-ia:start-work HDU-N    → con HDU-N: salta directo a
+        └── dd-cli hdu claim <HDU-N>        → auto-asignación
+        └── dd-cli hdu start <HDU-N>        → approved → in-progress
+        └── dd-cli start-session <HDU-N>    → abre sesión de trabajo
 ```
 
 ### Trabajar (en Claude Code, en orden)
