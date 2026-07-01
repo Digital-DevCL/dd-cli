@@ -1,10 +1,11 @@
 /**
  * `dd-cli reclassify --to=<type> --reason="<texto>"` — cambia dev_type post-lock.
  *
- * Solo permitido para rol Tech Lead en modo platform.
- * Modo local lanza error explicativo.
- *
- * Genera audit-log en plataforma + notificación al negocio si lead-time delta >20%.
+ * Disponible en ambos modos:
+ *   - modo local: el CLI confía en el usuario (MVP, sin verificación de rol real)
+ *     y genera audit-log local (ver reclassify-cmd.ts).
+ *   - modo platform: la plataforma verifica el rol real del caller y genera
+ *     audit-log server-side + notificación al negocio si lead-time delta >20%.
  *
  * Referencia: dd-cli-spec.md §3.6.1
  */
@@ -17,12 +18,10 @@ export interface ReclassifyInput {
   newType: DevType;
   reason: string;
   force?: boolean;
-  // Sólo modo platform:
   callerRole?: 'tech-lead' | 'admin' | 'dev' | 'pmo';
 }
 
 export type ReclassifyError =
-  | 'NOT_PLATFORM_MODE'
   | 'REASON_TOO_SHORT'
   | 'NO_SESSION'
   | 'INSUFFICIENT_ROLE'
@@ -39,15 +38,6 @@ export interface ReclassifyResult {
 const MIN_REASON_CHARS = 30;
 
 export function reclassify(input: ReclassifyInput): ReclassifyResult {
-  if (input.session.mode !== 'platform') {
-    return {
-      ok: false,
-      error: 'NOT_PLATFORM_MODE',
-      message:
-        'Reclasificación solo permitida en modo platform. El audit-log requiere persistencia server-side.',
-    };
-  }
-
   if (!input.session.started_at) {
     return {
       ok: false,

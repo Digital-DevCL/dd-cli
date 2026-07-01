@@ -20,6 +20,7 @@ import { runRegisterClient } from '../commands/register-client.js';
 import { runInitClient } from '../commands/init-client.js';
 import { runPullContext } from '../commands/pull-context.js';
 import { runDoctorCmd } from '../commands/doctor-cmd.js';
+import { runSessionRepairCmd } from '../commands/session-repair-cmd.js';
 import { runWatch } from '../commands/watch.js';
 import { runInstall, runUninstall } from '../commands/install-cmd.js';
 import { runFlow } from '../commands/flow-cmd.js';
@@ -838,6 +839,15 @@ program
   .option('--for <tipo>', 'Verificar precondiciones de un tipo específico (hipotético)')
   .action((opts) => {
     try { process.exit(runDoctorCmd({ forType: opts.for })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('session-repair')
+  .description('Repara .devflow/session.json cuando no cumple el schema (ej. dev_type_source inválido)')
+  .option('--yes', 'Aplica la reparación sin pedir confirmación', false)
+  .action(async (opts) => {
+    try { process.exit(await runSessionRepairCmd({ yes: opts.yes })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

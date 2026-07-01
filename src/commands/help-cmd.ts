@@ -1,9 +1,13 @@
 /**
- * `dd-cli help` — help contextual según flow_state.
+ * `dd-cli help-ctx` — help contextual según flow_state.
  *
- * Cambia según dónde está el dev. Sin sesión muestra setup.
- * Con sesión muestra solo los comandos relevantes para esa etapa.
- * --all muestra todos.
+ * Sin sesión: apunta al punto de entrada único (/devflow-ia:start-work).
+ * Con sesión: muestra el paso actual + próximo, según el journey real
+ *             (flow-stages.ts) del dev_type activo.
+ * --all: en vez de un listado plano de comandos, muestra las skills
+ *        agrupadas por rol y en orden de flujo — mismo contenido que
+ *        `docs/guia-flujo-roles.md`, condensado para terminal. Mantenerlos
+ *        sincronizados si se agregan/reordenan skills.
  */
 import { getProjectRoot } from '../utils/paths.js';
 import { loadSession } from '../utils/session-io.js';
@@ -15,31 +19,122 @@ const bold  = (s: string) => isTTY ? `\x1b[1m${s}\x1b[0m` : s;
 const cyan  = (s: string) => isTTY ? `\x1b[36m${s}\x1b[0m` : s;
 const dim   = (s: string) => isTTY ? `\x1b[90m${s}\x1b[0m` : s;
 
-interface HelpEntry {
+interface FlowItem {
   cmd: string;
   desc: string;
 }
 
-const ALL_COMMANDS: HelpEntry[] = [
-  { cmd: 'dd-cli init',                desc: 'Configura el proyecto (skills + hooks + CLAUDE.md)' },
-  { cmd: 'dd-cli start-session <id>',  desc: 'Inicia una sesión de trabajo sobre una HDU' },
-  { cmd: 'dd-cli end-session',         desc: 'Cierra la sesión (normalmente lo hace la skill /end-session)' },
-  { cmd: 'dd-cli status',              desc: 'Tu viaje actual: pasos completados y pendientes' },
-  { cmd: 'dd-cli next',                desc: 'Atajo: ¿qué tipeo ahora?' },
-  { cmd: 'dd-cli statusline',          desc: '1 línea para la statusLine de Claude Code (uso interno)' },
-  { cmd: 'dd-cli heartbeat',           desc: 'Señal de vida (llamado por hooks automáticamente)' },
-  { cmd: 'dd-cli reclassify',         desc: 'Cambia el dev_type (solo Tech Lead, post-lock)' },
-  { cmd: 'dd-cli doctor',              desc: 'Verifica que el entorno esté bien configurado' },
-  { cmd: 'dd-cli skills list',         desc: 'Lista las 19 skills instaladas con modelo' },
-  { cmd: 'dd-cli skills verify',       desc: 'Verifica que ninguna skill fue modificada localmente' },
-  { cmd: 'dd-cli skills install',      desc: 'Reinstala skills (útil tras actualizar dd-cli)' },
+interface FlowGroup {
+  title: string;
+  items: FlowItem[];
+}
+
+interface RoleFlow {
+  role: string;
+  groups: FlowGroup[];
+}
+
+// Espejo condensado de docs/guia-flujo-roles.md — orden de ejecución real.
+const ROLE_FLOWS: RoleFlow[] = [
+  {
+    role: 'Consultor Digital-Dev — onboarding de cliente (una vez por cliente)',
+    groups: [
+      {
+        title: '',
+        items: [
+          { cmd: '/devflow-ia:client-onboard', desc: 'Orquesta new → discover → publish' },
+        ],
+      },
+    ],
+  },
+  {
+    role: 'Tech Lead / PMO — por épica o feature',
+    groups: [
+      {
+        title: 'Crear HDUs (Claude Code)',
+        items: [
+          { cmd: '/devflow-ia:capture-req', desc: 'Brief crudo → estandarizado + dev_type sugerido' },
+          { cmd: '/devflow-ia:enrich-us',   desc: 'Agrega edge cases, criterios de aceptación, riesgos' },
+          { cmd: '/devflow-ia:design-hdu',  desc: 'Genera el archivo HDU formal (Gherkin + estimación)' },
+        ],
+      },
+      {
+        title: 'Gestionar (terminal)',
+        items: [
+          { cmd: 'dd-cli hdu approve <id>', desc: 'Aprueba la HDU' },
+          { cmd: 'dd-cli hdu assign <id>',  desc: 'Asigna al dev' },
+        ],
+      },
+      {
+        title: 'Board y métricas (Claude Code)',
+        items: [
+          { cmd: '/devflow-ia:hdu-board',    desc: 'Gestión conversacional del board' },
+          { cmd: '/devflow-ia:stats-review', desc: 'Interpreta throughput y lead time' },
+        ],
+      },
+    ],
+  },
+  {
+    role: 'Dev — por HDU asignada',
+    groups: [
+      {
+        title: 'Cada mañana (Claude Code)',
+        items: [
+          { cmd: '/devflow-ia:daily-standup', desc: 'Qué tengo hoy + inbox + alertas' },
+        ],
+      },
+      {
+        title: 'Arrancar — punto de entrada único (Claude Code)',
+        items: [
+          { cmd: '/devflow-ia:start-work', desc: 'Detecta dónde estás (máquina/repo/HDU) y te lleva hasta start-session' },
+        ],
+      },
+      {
+        title: 'Trabajar la HDU (Claude Code, en orden — varía por dev_type)',
+        items: [
+          { cmd: '/init-repo-context → /new-spec → /opsx:propose → /opsx:apply → /release-check → /end-session', desc: 'Genérico. Con sesión activa, dd-cli status muestra tu journey exacto.' },
+        ],
+      },
+      {
+        title: 'Cerrar la HDU (terminal)',
+        items: [
+          { cmd: 'dd-cli hdu review <id>', desc: 'in-progress → in-review (abre MR)' },
+          { cmd: 'dd-cli hdu close <id>',  desc: 'in-review → done (post-merge)' },
+        ],
+      },
+      {
+        title: 'Al final del día (Claude Code)',
+        items: [
+          { cmd: '/devflow-ia:end-day', desc: 'Cierra sesión + sugiere commit + estado de la HDU' },
+        ],
+      },
+    ],
+  },
 ];
 
-function printCommands(entries: HelpEntry[]): void {
-  const maxLen = Math.max(...entries.map(e => e.cmd.length));
-  for (const { cmd, desc } of entries) {
-    console.log(`  ${cyan(cmd.padEnd(maxLen + 2))} ${dim(desc)}`);
+function printRoleFlows(): void {
+  for (const { role, groups } of ROLE_FLOWS) {
+    console.log('');
+    console.log(bold(role.toUpperCase()));
+    for (const group of groups) {
+      if (group.title) console.log(`  ${dim(group.title + ':')}`);
+      const CAP = 70;
+      const maxLen = Math.min(Math.max(...group.items.map(i => i.cmd.length)), CAP);
+      for (const { cmd, desc } of group.items) {
+        if (cmd.length > CAP) {
+          console.log(`    ${cyan(cmd)}`);
+          console.log(`      ${dim(desc)}`);
+        } else {
+          console.log(`    ${cyan(cmd.padEnd(maxLen + 2))} ${dim(desc)}`);
+        }
+      }
+    }
   }
+  console.log('');
+  console.log(dim('Regla de oro: lo que toca el context repo termina con `dd-cli client publish`.'));
+  console.log(dim('              lo que es código termina con `/end-session` o `/end-day`.'));
+  console.log('');
+  console.log(dim('Guía completa (por rol, con más contexto): dd-cli guide roles'));
 }
 
 export function runHelp(opts: { all?: boolean } = {}): number {
@@ -51,8 +146,8 @@ export function runHelp(opts: { all?: boolean } = {}): number {
   }
 
   if (opts.all) {
-    console.log(`\n${bold('Todos los comandos de dd-cli')}\n`);
-    printCommands(ALL_COMMANDS);
+    console.log(`\n${bold('DevFlow IA — skills por rol, en orden de flujo')}`);
+    printRoleFlows();
     console.log('');
     return 0;
   }
@@ -63,45 +158,37 @@ export function runHelp(opts: { all?: boolean } = {}): number {
 
   // Sin sesión activa
   if (!session || !session.started_at) {
-    console.log(`\n${bold('Empezando en este proyecto')}\n`);
-    printCommands([
-      { cmd: 'dd-cli init',               desc: 'Primera vez: configura el proyecto' },
-      { cmd: 'dd-cli start-session <id>', desc: 'Inicia sesión con el ID de tu HDU' },
-      { cmd: 'dd-cli status',             desc: 'Ver estado actual' },
-    ]);
+    console.log(`\n${bold('Sin sesión activa en este proyecto')}\n`);
+    console.log(`  ${cyan('/devflow-ia:start-work')}   ${dim('Punto de entrada único — en Claude Code')}`);
+    console.log(`  ${cyan('dd-cli status')}            ${dim('Ver estado actual')}`);
+    console.log('');
+    console.log(dim(`Skills por rol, en orden de flujo: dd-cli help-ctx --all`));
     console.log('');
     return 0;
   }
 
-  // Con sesión — mostrar comandos relevantes para el estado actual
+  // Con sesión — mostrar el paso actual + próximo del journey real
   const stageName = ctx?.currentStage?.id ?? '?';
   const devType = session.dev_type ?? '?';
   console.log(`\n${bold(`Estás en: ${stageName}`)} ${dim(`(paso ${ctx?.currentIndex ?? '?'}/${ctx?.total ?? '?'} · ${devType})`)}\n`);
 
-  const contextual: HelpEntry[] = [
-    { cmd: 'dd-cli status',     desc: 'Ver progreso completo del viaje' },
-    { cmd: 'dd-cli next',       desc: '¿Qué tipeo ahora?' },
-  ];
-
-  if (flowState === 'change_active') {
-    contextual.push({ cmd: 'dd-cli heartbeat',   desc: 'Actualizar estado (lo hacen los hooks solos)' });
-  }
+  console.log(`  ${cyan('dd-cli status')}   ${dim('Ver progreso completo del viaje')}`);
+  console.log(`  ${cyan('dd-cli next')}     ${dim('¿Qué tipeo ahora?')}`);
+  console.log(`  ${cyan('dd-cli watch')}    ${dim('Barra de estado en vivo, en otro pane')}`);
 
   if (session.ended_at) {
-    contextual.push({ cmd: 'dd-cli start-session <id>', desc: 'Iniciar nueva sesión' });
+    console.log(`  ${cyan('/devflow-ia:start-work')}   ${dim('Iniciar nueva HDU')}`);
   } else {
-    contextual.push({ cmd: 'dd-cli end-session',  desc: 'Cerrar sesión al terminar el día' });
+    console.log(`  ${cyan('dd-cli end-session')}      ${dim('Cerrar sesión al terminar el día')}`);
   }
-
-  printCommands(contextual);
 
   if (ctx?.nextStage) {
     console.log('');
-    console.log(dim(`Cuando termines este paso, en Claude Code ejecuta: ${ctx.nextStage.command}`));
+    console.log(dim(`Cuando termines este paso: ${ctx.nextStage.command}`));
   }
 
   console.log('');
-  console.log(dim(`Ver todos los comandos: dd-cli help --all`));
+  console.log(dim(`Skills por rol, en orden de flujo: dd-cli help-ctx --all`));
   console.log('');
   return 0;
 }

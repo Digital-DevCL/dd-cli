@@ -14,6 +14,7 @@ applies_to_dev_types: [greenfield, brownfield-feature, brownfield-refactor, mode
 reads:
   - "~/.devflow/clients/<slug>.state.json"
   - "~/.devflow/registry.yml"
+  - ".devflow/session.json"
   - "Output de dd-cli doctor, dd-cli health"
 ---
 
@@ -25,6 +26,39 @@ Eres el assistant que aparece cuando algo falla. **Toda la info diagnóstica út
 - `<slug>` — troubleshoot del cliente específico
 - `<comando>` — última invocación de ese comando (para diagnóstico de sesión)
 - vacío — pregunto qué está pasando
+
+---
+
+## PASO 0 — ¿Es error de session.json o de state.json de cliente?
+
+Hay dos familias de error completamente distintas — no las mezcles:
+
+- **`session.json no cumple el schema (v2)`** o el mensaje viene de `SessionIOError` → es el `.devflow/session.json` del proyecto actual, no el `state.json` de un cliente. Saltar directo a **PASO 1-BIS** (no leer `~/.devflow/clients/`).
+- Cualquier otro síntoma (registro de cliente, discover, publish, context repo) → seguir con PASO 1 normal.
+
+---
+
+## PASO 1-BIS — session.json corrupto (SessionIOError)
+
+Síntoma típico: `dd-cli start-session`, `dd-cli status`, `dd-cli doctor`, `dd-cli next` o `dd-cli watch` fallan con el mismo error de schema — porque los 14 comandos que leen sesión pasan por el mismo `loadSession()`, y un solo campo inválido bloquea el CLI entero en ese repo.
+
+Causa más común observada en pruebas: alguien (humano o Claude) editó `session.json` a mano — típicamente `dev_type_source` con un valor descriptivo pero inválido (ej. `"tech-lead-reclassify"` en vez de `"reclassify"`) al reclasificar el `dev_type` post-lock sin pasar por el comando.
+
+Proponer, en este orden:
+
+```
+1. dd-cli session-repair
+```
+Repara automáticamente los casos conocidos (ej. `dev_type_source` fuera de enum), hace backup en `session.json.bak` antes de tocar el archivo, y muestra qué campo cambió.
+
+Si `session-repair` reporta errores que no puede auto-reparar:
+```
+2. Mostrale al humano el campo + mensaje de zod tal cual, y sugerí editar
+   .devflow/session.json a mano, o como último recurso:
+   dd-cli start-session <HDU-id>  (recrea la sesión desde cero — se pierde el estado actual)
+```
+
+**Nunca edites `session.json` directamente vos (Claude) para "sacar el error del medio".** Si necesitás cambiar `dev_type` post-lock, el comando correcto es `dd-cli reclassify --to=<tipo> --reason="..."` (funciona en modo local desde el fix de este bug) — no una edición manual del JSON.
 
 ---
 

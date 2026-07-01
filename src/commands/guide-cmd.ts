@@ -22,6 +22,8 @@ const TOPICS: Record<string, string> = {
   'hdus': 'guia-hdu-flow.md',
   'onboarding': 'guia-empresa.md',
   'dev': 'guia-dev-cli.md',
+  'roles': 'guia-flujo-roles.md',
+  'rol': 'guia-flujo-roles.md',
 };
 
 function resolveDocsPath(filename: string): string | null {

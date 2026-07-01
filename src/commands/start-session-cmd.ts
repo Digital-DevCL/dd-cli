@@ -19,6 +19,7 @@ import { registerGlobalSession, getUnclosedSessionsElsewhere } from '../utils/gl
 import { DEV_TYPES, type DevType } from '../types/dev-type.js';
 import { CLI_VERSION } from '../index.js';
 import { buildStartSessionState } from './start-session.js';
+import { stagesForDevType } from '../flow-state/flow-stages.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
 
 export interface StartSessionCmdOptions {
@@ -61,6 +62,7 @@ export async function runStartSession(
   } catch (e) {
     if (e instanceof SessionIOError) {
       printErr(e.message);
+      printDim(`  Intenta reparar con: dd-cli session-repair`);
       return 2;
     }
     throw e;
@@ -225,14 +227,32 @@ export async function runStartSession(
   }
 
   console.log('');
-  printInfo(`Próximo paso: ejecuta ${bold('dd-cli next')} para ver qué viene`);
-  printDim(`(o levanta la barra de estado en otro pane: dd-cli watch)`);
+  console.log(bold(`Tu flujo (${devType} · ${stagesForDevType(devType).length} pasos):`));
+  for (const stage of stagesForDevType(devType)) {
+    const marker = stage.index === 1 ? green('✓') : stage.index === 2 ? cyan('→') : dimColor(' ');
+    const label = stage.index <= 2 ? stage.command : dimColor(stage.command);
+    console.log(`  ${marker} ${String(stage.index).padStart(2)}. ${label}`);
+  }
+
+  console.log('');
+  printInfo(`Próximo paso: ${bold(stagesForDevType(devType)[1]?.command ?? 'dd-cli next')}`);
+  console.log('');
+  printOk(`Abrí la barra de estado en otro pane para seguir el progreso:`);
+  console.log(`    ${bold(cyan('dd-cli watch'))}`);
 
   return 0;
 }
 
 function labelPad(s: string): string {
   return s.padEnd(10);
+}
+
+function green(s: string): string {
+  return process.stdout.isTTY ? `\x1b[32m${s}\x1b[0m` : s;
+}
+
+function cyan(s: string): string {
+  return process.stdout.isTTY ? `\x1b[36m${s}\x1b[0m` : s;
 }
 
 function dimColor(s: string): string {

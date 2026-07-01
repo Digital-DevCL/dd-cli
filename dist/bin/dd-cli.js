@@ -3488,6 +3488,7 @@ async function runStartSession(featureId, opts = {}) {
   } catch (e) {
     if (e instanceof SessionIOError) {
       printErr(e.message);
+      printDim(`  Intenta reparar con: dd-cli session-repair`);
       return 2;
     }
     throw e;
@@ -3624,12 +3625,27 @@ Nueva sesi\xF3n \u2014 ${featureId}
     console.log(`  ${labelPad("Apps:")}     ${session.apps_affected.join(", ")}`);
   }
   console.log("");
-  printInfo(`Pr\xF3ximo paso: ejecuta ${bold2("dd-cli next")} para ver qu\xE9 viene`);
-  printDim(`(o levanta la barra de estado en otro pane: dd-cli watch)`);
+  console.log(bold2(`Tu flujo (${devType} \xB7 ${stagesForDevType(devType).length} pasos):`));
+  for (const stage2 of stagesForDevType(devType)) {
+    const marker = stage2.index === 1 ? green("\u2713") : stage2.index === 2 ? cyan("\u2192") : dimColor(" ");
+    const label = stage2.index <= 2 ? stage2.command : dimColor(stage2.command);
+    console.log(`  ${marker} ${String(stage2.index).padStart(2)}. ${label}`);
+  }
+  console.log("");
+  printInfo(`Pr\xF3ximo paso: ${bold2(stagesForDevType(devType)[1]?.command ?? "dd-cli next")}`);
+  console.log("");
+  printOk(`Abr\xED la barra de estado en otro pane para seguir el progreso:`);
+  console.log(`    ${bold2(cyan("dd-cli watch"))}`);
   return 0;
 }
 function labelPad(s) {
   return s.padEnd(10);
+}
+function green(s) {
+  return process.stdout.isTTY ? `\x1B[32m${s}\x1B[0m` : s;
+}
+function cyan(s) {
+  return process.stdout.isTTY ? `\x1B[36m${s}\x1B[0m` : s;
 }
 function dimColor(s) {
   return process.stdout.isTTY ? `\x1B[90m${s}\x1B[0m` : s;
@@ -3637,7 +3653,7 @@ function dimColor(s) {
 
 // src/commands/next-cmd.ts
 var isTTY3 = process.stdout.isTTY;
-var cyan = (s) => isTTY3 ? `\x1B[36m${s}\x1B[0m` : s;
+var cyan2 = (s) => isTTY3 ? `\x1B[36m${s}\x1B[0m` : s;
 var dim2 = (s) => isTTY3 ? `\x1B[90m${s}\x1B[0m` : s;
 function runNext() {
   const projectRoot = getProjectRoot();
@@ -3652,10 +3668,10 @@ function runNext() {
     throw e;
   }
   if (!session || !session.started_at) {
-    console.log(`Tu siguiente paso es: ${cyan("dd-cli start-session <HDU-id>")}`);
+    console.log(`Tu siguiente paso es: ${cyan2("dd-cli start-session <HDU-id>")}`);
     console.log("");
     console.log(dim2("\xBFPor qu\xE9? No hay sesi\xF3n activa en este proyecto."));
-    console.log(`\u2192 En tu terminal, ejecuta: ${cyan("dd-cli start-session <HDU-id>")}`);
+    console.log(`\u2192 En tu terminal, ejecuta: ${cyan2("dd-cli start-session <HDU-id>")}`);
     return 1;
   }
   const flowState = detectFlowState({ projectRoot, session });
@@ -3669,7 +3685,7 @@ function runNext() {
       console.log("");
       console.log(dim2(`\xBFPor qu\xE9? ${human.why}`));
       if (human.command !== "(completar en la APP)") {
-        console.log(`\u2192 En Claude Code, tipea: ${cyan(human.command)}`);
+        console.log(`\u2192 En Claude Code, tipea: ${cyan2(human.command)}`);
       }
     } else {
       console.log(`Tu siguiente paso es: ${bold2("resolver precondici\xF3n pendiente")}`);
@@ -3680,7 +3696,7 @@ function runNext() {
   }
   const ctx = session.dev_type ? getStageContext(session, flowState) : null;
   if (!ctx || !ctx.currentStage) {
-    console.log(`Tu siguiente paso es: ${cyan("dd-cli start-session <HDU-id>")}`);
+    console.log(`Tu siguiente paso es: ${cyan2("dd-cli start-session <HDU-id>")}`);
     console.log("");
     console.log(dim2("\xBFPor qu\xE9? La sesi\xF3n existe pero el dev_type no est\xE1 definido."));
     return 1;
@@ -3691,9 +3707,9 @@ function runNext() {
   console.log(dim2(`\xBFPor qu\xE9? ${stage2.rationale}`));
   console.log("");
   if (stage2.invokeIn === "claude") {
-    console.log(`\u2192 En Claude Code, tipea: ${cyan(stage2.command)}`);
+    console.log(`\u2192 En Claude Code, tipea: ${cyan2(stage2.command)}`);
   } else {
-    console.log(`\u2192 En tu terminal, ejecuta: ${cyan(stage2.command)}`);
+    console.log(`\u2192 En tu terminal, ejecuta: ${cyan2(stage2.command)}`);
   }
   return 0;
 }
@@ -4251,27 +4267,107 @@ DevFlow IA \u2014 motor de estado HTTP
 // src/commands/help-cmd.ts
 var isTTY4 = process.stdout.isTTY;
 var bold4 = (s) => isTTY4 ? `\x1B[1m${s}\x1B[0m` : s;
-var cyan2 = (s) => isTTY4 ? `\x1B[36m${s}\x1B[0m` : s;
+var cyan3 = (s) => isTTY4 ? `\x1B[36m${s}\x1B[0m` : s;
 var dim3 = (s) => isTTY4 ? `\x1B[90m${s}\x1B[0m` : s;
-var ALL_COMMANDS = [
-  { cmd: "dd-cli init", desc: "Configura el proyecto (skills + hooks + CLAUDE.md)" },
-  { cmd: "dd-cli start-session <id>", desc: "Inicia una sesi\xF3n de trabajo sobre una HDU" },
-  { cmd: "dd-cli end-session", desc: "Cierra la sesi\xF3n (normalmente lo hace la skill /end-session)" },
-  { cmd: "dd-cli status", desc: "Tu viaje actual: pasos completados y pendientes" },
-  { cmd: "dd-cli next", desc: "Atajo: \xBFqu\xE9 tipeo ahora?" },
-  { cmd: "dd-cli statusline", desc: "1 l\xEDnea para la statusLine de Claude Code (uso interno)" },
-  { cmd: "dd-cli heartbeat", desc: "Se\xF1al de vida (llamado por hooks autom\xE1ticamente)" },
-  { cmd: "dd-cli reclassify", desc: "Cambia el dev_type (solo Tech Lead, post-lock)" },
-  { cmd: "dd-cli doctor", desc: "Verifica que el entorno est\xE9 bien configurado" },
-  { cmd: "dd-cli skills list", desc: "Lista las 19 skills instaladas con modelo" },
-  { cmd: "dd-cli skills verify", desc: "Verifica que ninguna skill fue modificada localmente" },
-  { cmd: "dd-cli skills install", desc: "Reinstala skills (\xFAtil tras actualizar dd-cli)" }
-];
-function printCommands(entries) {
-  const maxLen = Math.max(...entries.map((e) => e.cmd.length));
-  for (const { cmd, desc } of entries) {
-    console.log(`  ${cyan2(cmd.padEnd(maxLen + 2))} ${dim3(desc)}`);
+var ROLE_FLOWS = [
+  {
+    role: "Consultor Digital-Dev \u2014 onboarding de cliente (una vez por cliente)",
+    groups: [
+      {
+        title: "",
+        items: [
+          { cmd: "/devflow-ia:client-onboard", desc: "Orquesta new \u2192 discover \u2192 publish" }
+        ]
+      }
+    ]
+  },
+  {
+    role: "Tech Lead / PMO \u2014 por \xE9pica o feature",
+    groups: [
+      {
+        title: "Crear HDUs (Claude Code)",
+        items: [
+          { cmd: "/devflow-ia:capture-req", desc: "Brief crudo \u2192 estandarizado + dev_type sugerido" },
+          { cmd: "/devflow-ia:enrich-us", desc: "Agrega edge cases, criterios de aceptaci\xF3n, riesgos" },
+          { cmd: "/devflow-ia:design-hdu", desc: "Genera el archivo HDU formal (Gherkin + estimaci\xF3n)" }
+        ]
+      },
+      {
+        title: "Gestionar (terminal)",
+        items: [
+          { cmd: "dd-cli hdu approve <id>", desc: "Aprueba la HDU" },
+          { cmd: "dd-cli hdu assign <id>", desc: "Asigna al dev" }
+        ]
+      },
+      {
+        title: "Board y m\xE9tricas (Claude Code)",
+        items: [
+          { cmd: "/devflow-ia:hdu-board", desc: "Gesti\xF3n conversacional del board" },
+          { cmd: "/devflow-ia:stats-review", desc: "Interpreta throughput y lead time" }
+        ]
+      }
+    ]
+  },
+  {
+    role: "Dev \u2014 por HDU asignada",
+    groups: [
+      {
+        title: "Cada ma\xF1ana (Claude Code)",
+        items: [
+          { cmd: "/devflow-ia:daily-standup", desc: "Qu\xE9 tengo hoy + inbox + alertas" }
+        ]
+      },
+      {
+        title: "Arrancar \u2014 punto de entrada \xFAnico (Claude Code)",
+        items: [
+          { cmd: "/devflow-ia:start-work", desc: "Detecta d\xF3nde est\xE1s (m\xE1quina/repo/HDU) y te lleva hasta start-session" }
+        ]
+      },
+      {
+        title: "Trabajar la HDU (Claude Code, en orden \u2014 var\xEDa por dev_type)",
+        items: [
+          { cmd: "/init-repo-context \u2192 /new-spec \u2192 /opsx:propose \u2192 /opsx:apply \u2192 /release-check \u2192 /end-session", desc: "Gen\xE9rico. Con sesi\xF3n activa, dd-cli status muestra tu journey exacto." }
+        ]
+      },
+      {
+        title: "Cerrar la HDU (terminal)",
+        items: [
+          { cmd: "dd-cli hdu review <id>", desc: "in-progress \u2192 in-review (abre MR)" },
+          { cmd: "dd-cli hdu close <id>", desc: "in-review \u2192 done (post-merge)" }
+        ]
+      },
+      {
+        title: "Al final del d\xEDa (Claude Code)",
+        items: [
+          { cmd: "/devflow-ia:end-day", desc: "Cierra sesi\xF3n + sugiere commit + estado de la HDU" }
+        ]
+      }
+    ]
   }
+];
+function printRoleFlows() {
+  for (const { role, groups } of ROLE_FLOWS) {
+    console.log("");
+    console.log(bold4(role.toUpperCase()));
+    for (const group of groups) {
+      if (group.title) console.log(`  ${dim3(group.title + ":")}`);
+      const CAP = 70;
+      const maxLen = Math.min(Math.max(...group.items.map((i) => i.cmd.length)), CAP);
+      for (const { cmd, desc } of group.items) {
+        if (cmd.length > CAP) {
+          console.log(`    ${cyan3(cmd)}`);
+          console.log(`      ${dim3(desc)}`);
+        } else {
+          console.log(`    ${cyan3(cmd.padEnd(maxLen + 2))} ${dim3(desc)}`);
+        }
+      }
+    }
+  }
+  console.log("");
+  console.log(dim3("Regla de oro: lo que toca el context repo termina con `dd-cli client publish`."));
+  console.log(dim3("              lo que es c\xF3digo termina con `/end-session` o `/end-day`."));
+  console.log("");
+  console.log(dim3("Gu\xEDa completa (por rol, con m\xE1s contexto): dd-cli guide roles"));
 }
 function runHelp(opts = {}) {
   let projectRoot;
@@ -4282,9 +4378,8 @@ function runHelp(opts = {}) {
   }
   if (opts.all) {
     console.log(`
-${bold4("Todos los comandos de dd-cli")}
-`);
-    printCommands(ALL_COMMANDS);
+${bold4("DevFlow IA \u2014 skills por rol, en orden de flujo")}`);
+    printRoleFlows();
     console.log("");
     return 0;
   }
@@ -4299,13 +4394,12 @@ ${bold4("Todos los comandos de dd-cli")}
   const ctx = session?.dev_type ? getStageContext(session, flowState) : null;
   if (!session || !session.started_at) {
     console.log(`
-${bold4("Empezando en este proyecto")}
+${bold4("Sin sesi\xF3n activa en este proyecto")}
 `);
-    printCommands([
-      { cmd: "dd-cli init", desc: "Primera vez: configura el proyecto" },
-      { cmd: "dd-cli start-session <id>", desc: "Inicia sesi\xF3n con el ID de tu HDU" },
-      { cmd: "dd-cli status", desc: "Ver estado actual" }
-    ]);
+    console.log(`  ${cyan3("/devflow-ia:start-work")}   ${dim3("Punto de entrada \xFAnico \u2014 en Claude Code")}`);
+    console.log(`  ${cyan3("dd-cli status")}            ${dim3("Ver estado actual")}`);
+    console.log("");
+    console.log(dim3(`Skills por rol, en orden de flujo: dd-cli help-ctx --all`));
     console.log("");
     return 0;
   }
@@ -4314,25 +4408,20 @@ ${bold4("Empezando en este proyecto")}
   console.log(`
 ${bold4(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/${ctx?.total ?? "?"} \xB7 ${devType})`)}
 `);
-  const contextual = [
-    { cmd: "dd-cli status", desc: "Ver progreso completo del viaje" },
-    { cmd: "dd-cli next", desc: "\xBFQu\xE9 tipeo ahora?" }
-  ];
-  if (flowState === "change_active") {
-    contextual.push({ cmd: "dd-cli heartbeat", desc: "Actualizar estado (lo hacen los hooks solos)" });
-  }
+  console.log(`  ${cyan3("dd-cli status")}   ${dim3("Ver progreso completo del viaje")}`);
+  console.log(`  ${cyan3("dd-cli next")}     ${dim3("\xBFQu\xE9 tipeo ahora?")}`);
+  console.log(`  ${cyan3("dd-cli watch")}    ${dim3("Barra de estado en vivo, en otro pane")}`);
   if (session.ended_at) {
-    contextual.push({ cmd: "dd-cli start-session <id>", desc: "Iniciar nueva sesi\xF3n" });
+    console.log(`  ${cyan3("/devflow-ia:start-work")}   ${dim3("Iniciar nueva HDU")}`);
   } else {
-    contextual.push({ cmd: "dd-cli end-session", desc: "Cerrar sesi\xF3n al terminar el d\xEDa" });
+    console.log(`  ${cyan3("dd-cli end-session")}      ${dim3("Cerrar sesi\xF3n al terminar el d\xEDa")}`);
   }
-  printCommands(contextual);
   if (ctx?.nextStage) {
     console.log("");
-    console.log(dim3(`Cuando termines este paso, en Claude Code ejecuta: ${ctx.nextStage.command}`));
+    console.log(dim3(`Cuando termines este paso: ${ctx.nextStage.command}`));
   }
   console.log("");
-  console.log(dim3(`Ver todos los comandos: dd-cli help --all`));
+  console.log(dim3(`Skills por rol, en orden de flujo: dd-cli help-ctx --all`));
   console.log("");
   return 0;
 }
@@ -4344,13 +4433,6 @@ import * as path21 from "path";
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
 function reclassify(input6) {
-  if (input6.session.mode !== "platform") {
-    return {
-      ok: false,
-      error: "NOT_PLATFORM_MODE",
-      message: "Reclasificaci\xF3n solo permitida en modo platform. El audit-log requiere persistencia server-side."
-    };
-  }
   if (!input6.session.started_at) {
     return {
       ok: false,
@@ -5063,7 +5145,7 @@ function doctor({ projectRoot, session, forType }) {
 init_dev_type();
 var isTTY7 = process.stdout.isTTY;
 var dim5 = (s) => isTTY7 ? `\x1B[90m${s}\x1B[0m` : s;
-var green = (s) => isTTY7 ? `\x1B[32m${s}\x1B[0m` : s;
+var green2 = (s) => isTTY7 ? `\x1B[32m${s}\x1B[0m` : s;
 function runDoctorCmd(opts = {}) {
   const projectRoot = getProjectRoot();
   console.log(`
@@ -5098,6 +5180,7 @@ ${bold2("Diagn\xF3stico del entorno DevFlow IA")}
   } catch (e) {
     if (e instanceof SessionIOError) {
       printErr(e.message);
+      printDim(`  Intenta reparar con: dd-cli session-repair`);
       return 2;
     }
     throw e;
@@ -5154,7 +5237,7 @@ ${bold2("Diagn\xF3stico del entorno DevFlow IA")}
     });
     for (const line of result.text.split("\n").slice(1)) {
       if (line.includes("\u2713")) {
-        console.log(`  ${green("\u2713")} ${line.replace(/\s*✓\s*/, "").trim()}`);
+        console.log(`  ${green2("\u2713")} ${line.replace(/\s*✓\s*/, "").trim()}`);
       } else if (line.includes("\u2717")) {
         const msg = line.replace(/\s*✗\s*/, "").trim();
         console.log(`  ${isTTY7 ? "\x1B[31m\u2717\x1B[0m" : "\u2717"} ${humanizeRuleId(msg)}`);
@@ -5188,8 +5271,99 @@ function humanizeRuleId(technicalMsg) {
   return technicalMsg;
 }
 
+// src/commands/session-repair-cmd.ts
+import { confirm as confirm2 } from "@inquirer/prompts";
+import { existsSync as existsSync28, readFileSync as readFileSync21, writeFileSync as writeFileSync16 } from "fs";
+async function runSessionRepairCmd(opts = {}) {
+  const projectRoot = getProjectRoot();
+  const sessionPath = getSessionPath(projectRoot);
+  if (!existsSync28(sessionPath)) {
+    printErr(`No existe ${sessionPath}. No hay nada que reparar.`);
+    return 2;
+  }
+  let rawContent;
+  try {
+    rawContent = readFileSync21(sessionPath, "utf-8");
+  } catch (e) {
+    printErr(`No se pudo leer ${sessionPath}: ${e instanceof Error ? e.message : String(e)}`);
+    return 2;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    printErr(`${sessionPath} no es JSON v\xE1lido \u2014 no se puede auto-reparar.`);
+    printDim(`  Restaur\xE1 desde un backup o corr\xE9: dd-cli start-session <HDU-id> (recrea desde cero)`);
+    return 2;
+  }
+  const initialResult = SessionStateSchema.safeParse(parsed);
+  if (initialResult.success) {
+    printOk(`${sessionPath} ya cumple el schema. Nada que reparar.`);
+    return 0;
+  }
+  console.log(bold2(`
+session.json no cumple el schema \u2014 diagnosticando...
+`));
+  const raw = parsed;
+  const patched = { ...raw };
+  const applied = [];
+  const unrepairable = [];
+  for (const issue of initialResult.error.issues) {
+    const field = issue.path.join(".");
+    if (field === "dev_type_source" && issue.code === "invalid_enum_value") {
+      const before = raw.dev_type_source;
+      const after = raw.dev_type_locked === true ? "reclassify" : "business-brief";
+      patched.dev_type_source = after;
+      applied.push({ field, before, after });
+      continue;
+    }
+    unrepairable.push(`  \u2717 ${field || "(ra\xEDz)"}: ${issue.message}`);
+  }
+  if (applied.length === 0) {
+    printErr(`No hay reparaci\xF3n autom\xE1tica conocida para estos errores:`);
+    for (const line of unrepairable) console.log(line);
+    printDim(`  Correg\xED ${sessionPath} a mano o volv\xE9 a iniciar sesi\xF3n con: dd-cli start-session <HDU-id>`);
+    return 1;
+  }
+  const finalResult = SessionStateSchema.safeParse(patched);
+  console.log(`Cambios propuestos:`);
+  for (const c3 of applied) {
+    console.log(`  ${c3.field}:  ${bold2(String(c3.before))}  \u2192  ${bold2(String(c3.after))}`);
+  }
+  if (!finalResult.success) {
+    console.log("");
+    printWarn(`Estos cambios no bastan \u2014 quedan errores sin reparaci\xF3n autom\xE1tica:`);
+    for (const line of unrepairable) console.log(line);
+    printDim(`  Correg\xED el resto a mano en ${sessionPath}`);
+    return 1;
+  }
+  if (unrepairable.length > 0) {
+    console.log("");
+    printWarn(`Hay otros errores que esta reparaci\xF3n no toca:`);
+    for (const line of unrepairable) console.log(line);
+  }
+  if (!opts.yes) {
+    console.log("");
+    const proceed = await confirm2({
+      message: `\xBFAplicar estos cambios a ${sessionPath}?`,
+      default: true
+    });
+    if (!proceed) {
+      printInfo("Reparaci\xF3n cancelada.");
+      return 1;
+    }
+  }
+  const backupPath = `${sessionPath}.bak`;
+  writeFileSync16(backupPath, rawContent, "utf-8");
+  writeFileSync16(sessionPath, JSON.stringify(finalResult.data, null, 2) + "\n", "utf-8");
+  console.log("");
+  printOk(`session.json reparado`);
+  printDim(`  Backup del original en ${backupPath}`);
+  return 0;
+}
+
 // src/commands/watch.ts
-import { existsSync as existsSync28, readFileSync as readFileSync21, readdirSync as readdirSync5, statSync as statSync6 } from "fs";
+import { existsSync as existsSync29, readFileSync as readFileSync22, readdirSync as readdirSync5, statSync as statSync6 } from "fs";
 import * as path26 from "path";
 var isTTY8 = process.stdout.isTTY;
 var c2 = {
@@ -5212,12 +5386,29 @@ function progressBar(done, total, width = 12) {
   const filled = Math.round(done / total * width);
   return "\u2588".repeat(filled) + "\u2591".repeat(width - filled);
 }
+function clientLabel(projectRoot) {
+  try {
+    const config = loadProjectConfig(projectRoot);
+    return config?.client.slug ?? null;
+  } catch {
+    return null;
+  }
+}
+var STALE_CONTEXT_HOURS = 7 * 24;
+function contextFreshness(slug) {
+  const entry = getClient(slug);
+  if (!entry?.last_synced) return { label: "sync: nunca", stale: true };
+  const ageH = (Date.now() - new Date(entry.last_synced).getTime()) / 36e5;
+  const stale = ageH > STALE_CONTEXT_HOURS;
+  const label = ageH < 1 ? "sync: <1h" : ageH < 24 ? `sync: ${Math.floor(ageH)}h` : `sync: ${Math.floor(ageH / 24)}d`;
+  return { label, stale };
+}
 function activeChangeName(projectRoot) {
   try {
     const changes = path26.join(projectRoot, "openspec", "changes");
-    if (!existsSync28(changes)) return null;
+    if (!existsSync29(changes)) return null;
     const entries = readdirSync5(changes).filter((e) => {
-      return statSync6(path26.join(changes, e)).isDirectory() && existsSync28(path26.join(changes, e, "tasks.md"));
+      return statSync6(path26.join(changes, e)).isDirectory() && existsSync29(path26.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
   } catch {
@@ -5226,7 +5417,7 @@ function activeChangeName(projectRoot) {
 }
 function countTasks(projectRoot, changeName) {
   try {
-    const content = readFileSync21(path26.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
+    const content = readFileSync22(path26.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
     const total = (content.match(/^- \[[ x]\]/gm) ?? []).length;
     const done = (content.match(/^- \[x\]/gm) ?? []).length;
     return { done, total };
@@ -5241,23 +5432,33 @@ function renderLines(projectRoot) {
   try {
     session = loadSession(projectRoot);
   } catch {
-    return buildBox(["DevFlow IA", "sin sesi\xF3n"], W);
+    return buildBox([
+      `${c2.bold("DevFlow IA")}  \xB7  ${c2.yellow("session.json inv\xE1lido")}`,
+      `Reparalo con: ${c2.cyan("dd-cli session-repair")}`,
+      "",
+      c2.dim("ayuda: dd-cli help-ctx  \xB7  Ctrl+C para salir")
+    ], W);
   }
+  const client = clientLabel(projectRoot);
+  const freshness = client ? contextFreshness(client) : null;
+  const freshnessPart = freshness ? ` ${c2.dim("\xB7")} ${freshness.stale ? c2.yellow(`\u26A0 ${freshness.label}`) : c2.dim(freshness.label)}` : "";
+  const clientTag = client ? `${c2.dim("[")}${c2.bold(c2.cyan(client))}${freshnessPart}${c2.dim("]")} ` : "";
   if (!session || !session.started_at) {
     return buildBox([
-      `${c2.bold("DevFlow IA")}  \xB7  sin sesi\xF3n activa`,
-      `Ejecuta: ${c2.cyan("dd-cli start-session <HDU-id>")}`,
-      ""
+      `${clientTag}${c2.bold("DevFlow IA")}  \xB7  sin sesi\xF3n activa`,
+      `Arranc\xE1 con: ${c2.cyan("/devflow-ia:start-work")} (en Claude Code)`,
+      "",
+      c2.dim("ayuda: dd-cli help-ctx  \xB7  por rol: dd-cli guide roles  \xB7  Ctrl+C para salir")
     ], W);
   }
   const flowState = detectFlowState({ projectRoot, session });
   const ctx = session.dev_type ? getStageContext(session, flowState) : null;
   const rawFeature = `${session.feature_id ?? "?"} \xB7 ${session.feature_name ?? ""}`;
-  const maxFeature = W - 30;
+  const maxFeature = W - 30 - stripAnsi2(clientTag).length;
   const feature = rawFeature.length > maxFeature ? rawFeature.slice(0, maxFeature - 1) + "\u2026" : rawFeature;
   const changeName = activeChangeName(projectRoot);
   const specPart = changeName ? `spec: ${c2.cyan(changeName)}` : c2.dim("spec: pendiente");
-  const line1 = `${c2.bold("DevFlow IA")} ${c2.dim("\u2502")} ${feature} ${c2.dim("\u2502")} ${specPart}`;
+  const line1 = `${clientTag}${c2.bold("DevFlow IA")} ${c2.dim("\u2502")} ${feature} ${c2.dim("\u2502")} ${specPart}`;
   const duration = formatDuration3(session.started_at);
   const mode = session.mode === "platform" ? `${c2.green("\u25CF")} platform` : c2.dim("local");
   let taskPart = c2.dim("tasks: \u2014");
@@ -5281,7 +5482,8 @@ function renderLines(projectRoot) {
   } else {
     line3 = `${badge}  ${c2.dim(flowState)}`;
   }
-  return buildBox([line1, line2, line3], W);
+  const line4 = c2.dim(`ayuda: dd-cli help-ctx  \xB7  por rol: dd-cli guide roles  \xB7  Ctrl+C para salir`);
+  return buildBox([line1, line2, line3, line4], W);
 }
 function extractHint(msg) {
   if (msg.includes("REPO-CONTEXT")) return c2.cyan("/init-repo-context");
@@ -5295,8 +5497,10 @@ function buildBox(lines, width) {
   const out = [`\u2554${hr}\u2557`];
   for (const line of lines) {
     const visible = stripAnsi2(line);
-    const pad2 = Math.max(0, width - visible.length - 2);
-    out.push(`\u2551 ${line}${" ".repeat(pad2)} \u2551`);
+    const budget = width - 2;
+    const truncated = visible.length > budget ? visible.slice(0, budget - 1) + "\u2026" : line;
+    const pad2 = Math.max(0, budget - stripAnsi2(truncated).length);
+    out.push(`\u2551 ${truncated}${" ".repeat(pad2)} \u2551`);
   }
   out.push(`\u255A${hr}\u255D`);
   return out;
@@ -5319,7 +5523,7 @@ async function runWatch(opts = {}) {
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
   let firstRender = true;
-  const LINE_COUNT = 5;
+  const LINE_COUNT = 6;
   const render = () => {
     const lines = renderLines(projectRoot);
     if (!firstRender) {
@@ -5340,7 +5544,7 @@ async function runWatch(opts = {}) {
 }
 
 // src/commands/install-cmd.ts
-import { existsSync as existsSync29, mkdirSync as mkdirSync18, readFileSync as readFileSync22, writeFileSync as writeFileSync16 } from "fs";
+import { existsSync as existsSync30, mkdirSync as mkdirSync18, readFileSync as readFileSync23, writeFileSync as writeFileSync17 } from "fs";
 import * as path27 from "path";
 import chalk2 from "chalk";
 function printBanner() {
@@ -5360,9 +5564,9 @@ function printBanner() {
 var STATUSLINE_COMMAND = "dd-cli statusline";
 function readGlobalSettings() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync29(settingsPath)) return {};
+  if (!existsSync30(settingsPath)) return {};
   try {
-    return JSON.parse(readFileSync22(settingsPath, "utf-8"));
+    return JSON.parse(readFileSync23(settingsPath, "utf-8"));
   } catch {
     throw new Error(
       `${settingsPath} existe pero no es JSON v\xE1lido. Corr\xEDgelo manualmente o usa --force.`
@@ -5372,8 +5576,8 @@ function readGlobalSettings() {
 function writeGlobalSettings(settings) {
   const settingsPath = getClaudeGlobalSettingsPath();
   const dir = path27.dirname(settingsPath);
-  if (!existsSync29(dir)) mkdirSync18(dir, { recursive: true });
-  writeFileSync16(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  if (!existsSync30(dir)) mkdirSync18(dir, { recursive: true });
+  writeFileSync17(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 async function runInstall(opts = {}) {
   printBanner();
@@ -5427,7 +5631,7 @@ async function runInstall(opts = {}) {
 }
 async function runUninstall() {
   console.log(bold("\nDevFlow IA \u2014 uninstall (global)\n"));
-  if (!existsSync29(getClaudeGlobalSettingsPath())) {
+  if (!existsSync30(getClaudeGlobalSettingsPath())) {
     printInfo("No hay settings.json global; nada que desinstalar.");
     return 0;
   }
@@ -5581,29 +5785,29 @@ function runFlow(opts = {}) {
 
 // src/commands/new-hdu-cmd.ts
 import { execSync as execSync5, spawn } from "child_process";
-import { existsSync as existsSync31, mkdirSync as mkdirSync19, readdirSync as readdirSync6, writeFileSync as writeFileSync17 } from "fs";
+import { existsSync as existsSync32, mkdirSync as mkdirSync19, readdirSync as readdirSync6, writeFileSync as writeFileSync18 } from "fs";
 import * as path29 from "path";
 
 // src/utils/templates.ts
-import { existsSync as existsSync30, readFileSync as readFileSync23 } from "fs";
+import { existsSync as existsSync31, readFileSync as readFileSync24 } from "fs";
 import * as path28 from "path";
 import { fileURLToPath as fileURLToPath4 } from "url";
 function resolveTemplatesDir() {
   const here = path28.dirname(fileURLToPath4(import.meta.url));
   const bundled = path28.resolve(here, "..", "..", "templates");
-  if (existsSync30(bundled)) return bundled;
+  if (existsSync31(bundled)) return bundled;
   const monorepo = path28.resolve(here, "..", "..", "..", "templates");
-  if (existsSync30(monorepo)) return monorepo;
+  if (existsSync31(monorepo)) return monorepo;
   return null;
 }
 function getTemplatePath(name) {
   const dir = resolveTemplatesDir();
   if (!dir) return null;
   const full = path28.join(dir, name);
-  return existsSync30(full) ? full : null;
+  return existsSync31(full) ? full : null;
 }
 function renderTemplate(templatePath, vars) {
-  let content = readFileSync23(templatePath, "utf-8");
+  let content = readFileSync24(templatePath, "utf-8");
   for (const [key, value] of Object.entries(vars)) {
     content = content.replaceAll(`{{${key}}}`, value);
   }
@@ -5619,7 +5823,7 @@ function pad(n) {
   return n.toString().padStart(3, "0");
 }
 function nextHduId(hduDir) {
-  if (!existsSync31(hduDir)) return "001";
+  if (!existsSync32(hduDir)) return "001";
   const entries = readdirSync6(hduDir).filter((f) => f.endsWith(".md"));
   let max = 0;
   for (const entry of entries) {
@@ -5678,7 +5882,7 @@ async function runNewHdu(title, opts = {}) {
     return 2;
   }
   const hduDir = path29.join(projectRoot, HDU_DIR);
-  if (!existsSync31(hduDir)) mkdirSync19(hduDir, { recursive: true });
+  if (!existsSync32(hduDir)) mkdirSync19(hduDir, { recursive: true });
   const id = nextHduId(hduDir);
   const slug = slugify(title.trim());
   const fileName = `HDU-${id}-${slug}.md`;
@@ -5697,11 +5901,11 @@ async function runNewHdu(title, opts = {}) {
     DATE: today,
     USER: getGitUser(projectRoot)
   });
-  if (existsSync31(hduPath)) {
+  if (existsSync32(hduPath)) {
     printErr(`Ya existe ${hduPathRel}. Cambia el t\xEDtulo o borra el archivo.`);
     return 1;
   }
-  writeFileSync17(hduPath, content, "utf-8");
+  writeFileSync18(hduPath, content, "utf-8");
   console.log(bold2(`
 DevFlow IA \u2014 nueva HDU
 `));
@@ -5724,7 +5928,7 @@ DevFlow IA \u2014 nueva HDU
 }
 
 // src/commands/health-cmd.ts
-import { existsSync as existsSync32, readFileSync as readFileSync24, readdirSync as readdirSync7, statSync as statSync7 } from "fs";
+import { existsSync as existsSync33, readFileSync as readFileSync25, readdirSync as readdirSync7, statSync as statSync7 } from "fs";
 import * as path30 from "path";
 function check(label, status, detail) {
   const icons = { ok: ok("\u2713"), warn: warn("\u26A0"), err: err("\u2717"), skip: dim("\xB7") };
@@ -5748,7 +5952,7 @@ function formatAge(isoDate) {
   return `hace ${days}d`;
 }
 function countSkills(dir) {
-  if (!existsSync32(dir)) return 0;
+  if (!existsSync33(dir)) return 0;
   let count = 0;
   for (const entry of readdirSync7(dir)) {
     const full = path30.join(dir, entry);
@@ -5766,14 +5970,14 @@ function countSkills(dir) {
 }
 function checkSkills() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync32(skillsDir)) {
+  if (!existsSync33(skillsDir)) {
     return { status: "err", detail: `no instaladas \u2014 ejecuta: dd-cli init o dd-cli skills install` };
   }
   const versionFile = path30.join(skillsDir, ".version");
-  if (!existsSync32(versionFile)) {
+  if (!existsSync33(versionFile)) {
     return { status: "warn", detail: `instaladas, sin versi\xF3n registrada` };
   }
-  const installed = readFileSync24(versionFile, "utf-8").trim();
+  const installed = readFileSync25(versionFile, "utf-8").trim();
   if (installed !== CLI_VERSION) {
     return { status: "warn", detail: `v${installed} instalada, v${CLI_VERSION} disponible \u2014 ejecuta: dd-cli skills install` };
   }
@@ -5782,11 +5986,11 @@ function checkSkills() {
 }
 function checkStatusline() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync32(settingsPath)) {
+  if (!existsSync33(settingsPath)) {
     return { status: "warn", detail: `no configurada \u2014 ejecuta: dd-cli install` };
   }
   try {
-    const settings = JSON.parse(readFileSync24(settingsPath, "utf-8"));
+    const settings = JSON.parse(readFileSync25(settingsPath, "utf-8"));
     const sl = settings.statusLine;
     if (sl?.type === "command" && sl.command === "dd-cli statusline") {
       return { status: "ok", detail: `activa en ${settingsPath}` };
@@ -5805,7 +6009,7 @@ function checkClient(slug) {
   if (!entry) {
     return { slug, status: "err", issues: ["no registrado \u2014 ejecuta: dd-cli register-client"], details };
   }
-  if (!existsSync32(entry.local_cache)) {
+  if (!existsSync33(entry.local_cache)) {
     issues.push(`contexto no clonado en ${entry.local_cache}`);
   } else {
     details["contexto"] = entry.local_cache;
@@ -5963,7 +6167,7 @@ async function runHealth(opts = {}) {
 
 // src/commands/client-migrate.ts
 import { execSync as execSync6 } from "child_process";
-import { existsSync as existsSync33, readFileSync as readFileSync25, cpSync } from "fs";
+import { existsSync as existsSync34, readFileSync as readFileSync26, cpSync } from "fs";
 import * as path31 from "path";
 import * as yaml11 from "js-yaml";
 function runGit3(cmd, cwd) {
@@ -6016,9 +6220,9 @@ function planMigration(cacheDir, slug) {
   const steps = [];
   const legacyMasterPath = path31.join(cacheDir, ".devflow", "config.yml");
   const stackYmlExists = hasStackConfig(cacheDir);
-  if (!stackYmlExists && existsSync33(legacyMasterPath)) {
+  if (!stackYmlExists && existsSync34(legacyMasterPath)) {
     try {
-      const raw = readFileSync25(legacyMasterPath, "utf-8");
+      const raw = readFileSync26(legacyMasterPath, "utf-8");
       const parsed = yaml11.load(raw);
       if (looksLikeLegacyMasterConfig(parsed)) {
         const next = buildStackFromLegacyMaster(slug, parsed);
@@ -6037,8 +6241,8 @@ function planMigration(cacheDir, slug) {
       });
     }
   }
-  const catalogYmlExists = existsSync33(getCatalogYamlPath(cacheDir));
-  const catalogMdExists = existsSync33(getCatalogMarkdownPath(cacheDir));
+  const catalogYmlExists = existsSync34(getCatalogYamlPath(cacheDir));
+  const catalogMdExists = existsSync34(getCatalogMarkdownPath(cacheDir));
   if (!catalogYmlExists && catalogMdExists) {
     try {
       const catalog = loadCatalog(cacheDir);
@@ -6063,7 +6267,7 @@ function planMigration(cacheDir, slug) {
         type: "noop-already-migrated",
         description: "El cliente ya usa el schema nuevo \u2014 nada que migrar"
       });
-    } else if (!hasCatalog(cacheDir) && !existsSync33(legacyMasterPath)) {
+    } else if (!hasCatalog(cacheDir) && !existsSync34(legacyMasterPath)) {
       steps.push({
         type: "noop-nothing-to-migrate",
         description: "Context repo vac\xEDo o incompleto \u2014 corr\xE9 /devflow-ia:init-context primero"
@@ -6075,7 +6279,7 @@ function planMigration(cacheDir, slug) {
 function applyMigration(cacheDir, slug, steps) {
   for (const step of steps) {
     if (step.type === "create-stack-yml-from-legacy-config") {
-      const raw = readFileSync25(path31.join(cacheDir, ".devflow", "config.yml"), "utf-8");
+      const raw = readFileSync26(path31.join(cacheDir, ".devflow", "config.yml"), "utf-8");
       const parsed = yaml11.load(raw);
       const next = buildStackFromLegacyMaster(slug, parsed);
       const config = StackConfigSchema.parse(next);
@@ -6159,7 +6363,7 @@ async function runClientMigrate(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync33(cacheDir)) {
+  if (!existsSync34(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada en ${cacheDir}.`,
@@ -6241,7 +6445,7 @@ Plan de migraci\xF3n para ${slug}
 }
 
 // src/commands/client-discover.ts
-import { mkdirSync as mkdirSync21, writeFileSync as writeFileSync19 } from "fs";
+import { mkdirSync as mkdirSync21, writeFileSync as writeFileSync20 } from "fs";
 import * as path32 from "path";
 import ora from "ora";
 
@@ -6566,7 +6770,7 @@ async function runClientDiscover(slug, opts = {}) {
       saved_to: outPath
     };
     mkdirSync21(path32.dirname(outPath), { recursive: true });
-    writeFileSync19(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
+    writeFileSync20(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
     recordCommandResult(slug, "client discover", {
       success: true,
       state: "DISCOVERED",
@@ -6631,18 +6835,18 @@ function dimLine(s) {
 }
 
 // src/commands/context-validate.ts
-import { existsSync as existsSync34, readdirSync as readdirSync8, readFileSync as readFileSync26 } from "fs";
+import { existsSync as existsSync35, readdirSync as readdirSync8, readFileSync as readFileSync27 } from "fs";
 import * as path33 from "path";
 function authProfilesAvailable(repoRoot) {
   const dir = path33.join(repoRoot, ".devflow-context", "auth-profiles");
-  if (!existsSync34(dir)) return /* @__PURE__ */ new Set();
+  if (!existsSync35(dir)) return /* @__PURE__ */ new Set();
   return new Set(
     readdirSync8(dir).filter((f) => f.endsWith(".md") || f.endsWith(".yml")).map((f) => f.replace(/\.(md|yml)$/, ""))
   );
 }
 function cicdProfilesAvailable(repoRoot) {
   const dir = path33.join(repoRoot, ".devflow-context", "cicd-profiles");
-  if (!existsSync34(dir)) return /* @__PURE__ */ new Set();
+  if (!existsSync35(dir)) return /* @__PURE__ */ new Set();
   return new Set(
     readdirSync8(dir).filter((f) => f.endsWith(".yml")).map((f) => f.replace(/\.yml$/, ""))
   );
@@ -6659,7 +6863,7 @@ function validateContextRepo(repoRoot) {
     return findings;
   }
   const markerPath = getContextRepoMarkerPath(repoRoot);
-  if (!existsSync34(markerPath)) {
+  if (!existsSync35(markerPath)) {
     findings.push({
       level: "warn",
       rule: "context-repo-marker",
@@ -6702,7 +6906,7 @@ function validateContextRepo(repoRoot) {
           message: `stack.yml OK \u2014 ${stack.stack.backend_framework} + ${stack.stack.frontend_framework}`
         });
         try {
-          const raw = readFileSync26(getStackConfigPath(repoRoot), "utf-8");
+          const raw = readFileSync27(getStackConfigPath(repoRoot), "utf-8");
           const audited = parseAuditedFile(raw);
           if (audited.header && !audited.matches_checksum) {
             findings.push({
@@ -6741,9 +6945,9 @@ function validateContextRepo(repoRoot) {
         message: `catalog OK \u2014 ${apps.length} apps`
       });
       const catalogYmlPath = getCatalogYamlPath(repoRoot);
-      if (existsSync34(catalogYmlPath)) {
+      if (existsSync35(catalogYmlPath)) {
         try {
-          const raw = readFileSync26(catalogYmlPath, "utf-8");
+          const raw = readFileSync27(catalogYmlPath, "utf-8");
           const audited = parseAuditedFile(raw);
           if (audited.header && !audited.matches_checksum) {
             findings.push({
@@ -6776,7 +6980,7 @@ function validateContextRepo(repoRoot) {
           });
         }
       }
-      if (!existsSync34(getCatalogYamlPath(repoRoot)) && existsSync34(getCatalogMarkdownPath(repoRoot))) {
+      if (!existsSync35(getCatalogYamlPath(repoRoot)) && existsSync35(getCatalogMarkdownPath(repoRoot))) {
         findings.push({
           level: "warn",
           rule: "catalog-format",
@@ -6797,7 +7001,7 @@ function validateContextRepo(repoRoot) {
 async function runContextValidate(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
   const repoRoot = path33.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync34(repoRoot)) {
+  if (!existsSync35(repoRoot)) {
     const err2 = {
       code: "INVALID_INPUT",
       message: `El path "${repoRoot}" no existe.`,
@@ -6844,12 +7048,12 @@ async function runContextValidate(repoPathArg, opts = {}) {
 }
 
 // src/commands/context-render.ts
-import { existsSync as existsSync35, readFileSync as readFileSync27, writeFileSync as writeFileSync20 } from "fs";
+import { existsSync as existsSync36, readFileSync as readFileSync28, writeFileSync as writeFileSync21 } from "fs";
 import * as path34 from "path";
 async function runContextRender(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
   const repoRoot = path34.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync35(repoRoot)) {
+  if (!existsSync36(repoRoot)) {
     const err2 = {
       code: "INVALID_INPUT",
       message: `El path "${repoRoot}" no existe.`,
@@ -6876,7 +7080,7 @@ async function runContextRender(repoPathArg, opts = {}) {
   const steps = [];
   const yamlPath = getCatalogYamlPath(repoRoot);
   const mdPath = getCatalogMarkdownPath(repoRoot);
-  if (!existsSync35(yamlPath)) {
+  if (!existsSync36(yamlPath)) {
     steps.push({
       type: "catalog-md",
       from: yamlPath,
@@ -6891,13 +7095,13 @@ async function runContextRender(repoPathArg, opts = {}) {
         steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "skipped", reason: "catalog.yml vac\xEDo" });
       } else {
         const next = renderCatalogMarkdown(catalog);
-        const current = existsSync35(mdPath) ? readFileSync27(mdPath, "utf-8") : "";
+        const current = existsSync36(mdPath) ? readFileSync28(mdPath, "utf-8") : "";
         if (current === next && !opts.force) {
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "unchanged" });
         } else if (opts.dryRun) {
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "would-write" });
         } else {
-          writeFileSync20(mdPath, next, "utf-8");
+          writeFileSync21(mdPath, next, "utf-8");
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "written" });
         }
       }
@@ -6949,7 +7153,7 @@ async function runContextRender(repoPathArg, opts = {}) {
 }
 
 // src/commands/context-install-ci.ts
-import { existsSync as existsSync36, readFileSync as readFileSync28, writeFileSync as writeFileSync21, mkdirSync as mkdirSync22 } from "fs";
+import { existsSync as existsSync37, readFileSync as readFileSync29, writeFileSync as writeFileSync22, mkdirSync as mkdirSync22 } from "fs";
 import * as path35 from "path";
 import { fileURLToPath as fileURLToPath5 } from "url";
 function resolveTemplatePath(filename) {
@@ -6961,7 +7165,7 @@ function resolveTemplatePath(filename) {
       path35.resolve(here, "../../../templates/ci", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync36(c3)) return c3;
+      if (existsSync37(c3)) return c3;
     }
   } catch {
   }
@@ -6970,7 +7174,7 @@ function resolveTemplatePath(filename) {
 async function runContextInstallCi(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
   const repoRoot = path35.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync36(repoRoot) || !isContextRepo(repoRoot)) {
+  if (!existsSync37(repoRoot) || !isContextRepo(repoRoot)) {
     const e = {
       code: "CONTEXT_REPO_INVALID",
       message: `${repoRoot} no parece ser un context repo.`,
@@ -7012,18 +7216,18 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
     printErr(e.message);
     return 1;
   }
-  const templateContent = readFileSync28(templatePath, "utf-8");
+  const templateContent = readFileSync29(templatePath, "utf-8");
   let action;
-  if (!existsSync36(targetPath)) {
+  if (!existsSync37(targetPath)) {
     mkdirSync22(path35.dirname(targetPath), { recursive: true });
-    writeFileSync21(targetPath, templateContent, "utf-8");
+    writeFileSync22(targetPath, templateContent, "utf-8");
     action = "written";
   } else {
-    const current = readFileSync28(targetPath, "utf-8");
+    const current = readFileSync29(targetPath, "utf-8");
     if (current === templateContent) {
       action = "unchanged";
     } else if (opts.force) {
-      writeFileSync21(targetPath, templateContent, "utf-8");
+      writeFileSync22(targetPath, templateContent, "utf-8");
       action = "overwritten";
     } else {
       action = "conflict";
@@ -7073,10 +7277,10 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
 
 // src/commands/client-new.ts
 import { execSync as execSync7 } from "child_process";
-import { existsSync as existsSync37, mkdirSync as mkdirSync23, rmSync as rmSync3 } from "fs";
+import { existsSync as existsSync38, mkdirSync as mkdirSync23, rmSync as rmSync3 } from "fs";
 import * as path36 from "path";
 import * as os3 from "os";
-import { input as input3, password, select as select3, confirm as confirm2 } from "@inquirer/prompts";
+import { input as input3, password, select as select3, confirm as confirm3 } from "@inquirer/prompts";
 var isTTY9 = process.stdout.isTTY;
 function runGit4(cmd, cwd) {
   return execSync7(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -7101,7 +7305,7 @@ async function runClientNew(slug, opts = {}) {
   }
   const existingClient = getClient(slug);
   if (existingClient && !opts.yes && !jsonMode && isTTY9) {
-    const proceed = await confirm2({
+    const proceed = await confirm3({
       message: `El cliente "${slug}" ya est\xE1 registrado. \xBFContinuar e intentar reparar lo que falte?`,
       default: false
     });
@@ -7276,7 +7480,7 @@ Onboarding del cliente: ${slug}
   }
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl(contextRepoUrl, gitToken, provider);
-  if (existsSync37(cacheDir)) {
+  if (existsSync38(cacheDir)) {
     try {
       runGit4("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -7285,9 +7489,9 @@ Onboarding del cliente: ${slug}
       rmSync3(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync37(cacheDir)) {
+  if (!existsSync38(cacheDir)) {
     const parentDir = path36.dirname(cacheDir);
-    if (!existsSync37(parentDir)) mkdirSync23(parentDir, { recursive: true });
+    if (!existsSync38(parentDir)) mkdirSync23(parentDir, { recursive: true });
     try {
       runGit4(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -7315,7 +7519,7 @@ Onboarding del cliente: ${slug}
   if (!jsonMode) printOk("Registry + credentials guardados (~/.devflow/)");
   try {
     const markerPath = getContextRepoMarkerPath(cacheDir);
-    if (!existsSync37(markerPath) || opts.yes) {
+    if (!existsSync38(markerPath) || opts.yes) {
       saveContextRepoMarker(cacheDir, {
         kind: "context-repo",
         schema_version: "1.1",
@@ -7383,7 +7587,7 @@ function embedTokenInUrl(url, token, provider) {
 
 // src/commands/client-publish.ts
 import { execSync as execSync8 } from "child_process";
-import { existsSync as existsSync38, writeFileSync as writeFileSync22 } from "fs";
+import { existsSync as existsSync39, writeFileSync as writeFileSync23 } from "fs";
 import * as path37 from "path";
 function runGit5(cmd, cwd) {
   return execSync8(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -7415,7 +7619,7 @@ async function runClientPublish(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync38(cacheDir)) {
+  if (!existsSync39(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -7463,7 +7667,7 @@ async function runClientPublish(slug, opts = {}) {
   }
   const claudeMdPath = path37.join(cacheDir, "CLAUDE.md");
   const templatePath = getTemplatePath("CLAUDE.context-repo.md.template");
-  if (templatePath && !existsSync38(claudeMdPath)) {
+  if (templatePath && !existsSync39(claudeMdPath)) {
     try {
       const stackCfg = loadStackConfig(cacheDir);
       let catalog;
@@ -7486,7 +7690,7 @@ async function runClientPublish(slug, opts = {}) {
         CLI_VERSION,
         GENERATED_AT: (/* @__PURE__ */ new Date()).toISOString().split("T")[0]
       });
-      writeFileSync22(claudeMdPath, rendered, "utf-8");
+      writeFileSync23(claudeMdPath, rendered, "utf-8");
       if (!jsonMode) printOk("CLAUDE.md generado para rol TL/PMO");
     } catch (e) {
       if (!jsonMode) printDim(`CLAUDE.md no generado: ${e instanceof Error ? e.message : String(e)}`);
@@ -7584,7 +7788,7 @@ async function runClientPublish(slug, opts = {}) {
 }
 
 // src/commands/client-show.ts
-import { existsSync as existsSync39 } from "fs";
+import { existsSync as existsSync40 } from "fs";
 function ageInHours(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -7649,7 +7853,7 @@ async function runClientShow(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  const cacheExists = existsSync39(cacheDir);
+  const cacheExists = existsSync40(cacheDir);
   const state = readClientState(slug);
   const stateName = state?.state ?? "UNKNOWN";
   const isStale = ageInHours(entry.last_synced) > 24;
@@ -7767,7 +7971,7 @@ async function runClientShow(slug, opts = {}) {
 }
 
 // src/commands/client-list.ts
-import { existsSync as existsSync40, readdirSync as readdirSync9 } from "fs";
+import { existsSync as existsSync41, readdirSync as readdirSync9 } from "fs";
 function ageInHours2(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -7800,7 +8004,7 @@ function listClients() {
     const cacheDir = getClientCacheDir(entry.slug);
     const state = readClientState(entry.slug);
     let appsCount = 0;
-    if (existsSync40(cacheDir)) {
+    if (existsSync41(cacheDir)) {
       try {
         const catalog = loadCatalog(cacheDir);
         appsCount = catalog?.apps.length ?? 0;
@@ -7847,7 +8051,7 @@ async function runHome(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const clients = listClients();
   const skillsDir = getClaudeSkillsDir();
-  const skillsCount = existsSync40(skillsDir) ? readdirSync9(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  const skillsCount = existsSync41(skillsDir) ? readdirSync9(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
   const claudeOk = isClaudeCodeInstalled();
   let activeSession = null;
   const projectRoot = findDevFlowProjectRoot();
@@ -7906,7 +8110,7 @@ async function runHome(opts = {}) {
 }
 
 // src/commands/client-refresh.ts
-import { existsSync as existsSync41 } from "fs";
+import { existsSync as existsSync42 } from "fs";
 function discoveryRepoToCatalogApp(repo) {
   const authProfile = repo.auth_pattern === "unknown" ? null : repo.auth_pattern;
   return CatalogAppSchema.parse({
@@ -8018,7 +8222,7 @@ async function runClientRefresh(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync41(cacheDir)) {
+  if (!existsSync42(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -8178,7 +8382,7 @@ async function readKeyFiles2(provider, repoIdOrSlug, branch, concurrency) {
 
 // src/commands/client-onboard-dev.ts
 import { execSync as execSync9 } from "child_process";
-import { existsSync as existsSync42, mkdirSync as mkdirSync24, rmSync as rmSync4 } from "fs";
+import { existsSync as existsSync43, mkdirSync as mkdirSync24, rmSync as rmSync4 } from "fs";
 import * as path38 from "path";
 import { input as input4, password as password2 } from "@inquirer/prompts";
 var isTTY10 = process.stdout.isTTY;
@@ -8299,7 +8503,7 @@ Setup local para ${slug}
   if (!jsonMode) printOk(`Token v\xE1lido \u2014 usuario ${tokenCheck.user ?? "desconocido"}`);
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl2(contextUrl, gitToken, provider);
-  if (existsSync42(cacheDir)) {
+  if (existsSync43(cacheDir)) {
     try {
       runGit6("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -8308,9 +8512,9 @@ Setup local para ${slug}
       rmSync4(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync42(cacheDir)) {
+  if (!existsSync43(cacheDir)) {
     const parentDir = path38.dirname(cacheDir);
-    if (!existsSync42(parentDir)) mkdirSync24(parentDir, { recursive: true });
+    if (!existsSync43(parentDir)) mkdirSync24(parentDir, { recursive: true });
     try {
       runGit6(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -8343,7 +8547,7 @@ Setup local para ${slug}
   setClientCredentials(slug, creds);
   if (!jsonMode) printOk("Cliente registrado en esta m\xE1quina (~/.devflow/registry.yml + credentials.yml)");
   const skillsDir = getClaudeSkillsDir();
-  const skillsInstalled = existsSync42(skillsDir);
+  const skillsInstalled = existsSync43(skillsDir);
   if (!skillsInstalled && !jsonMode) {
     printWarn("Las skills DevFlow IA NO est\xE1n instaladas en esta m\xE1quina.");
     printDim("  Para instalarlas: dd-cli skills install");
@@ -8380,7 +8584,7 @@ Setup local para ${slug}
 }
 
 // src/commands/client-compare.ts
-import { existsSync as existsSync43 } from "fs";
+import { existsSync as existsSync44 } from "fs";
 function diffSets(a, b) {
   const setA = new Set(a);
   const setB = new Set(b);
@@ -8420,7 +8624,7 @@ async function runClientCompare(slugA, slugB, opts = {}) {
       printErr(e.message);
       return 2;
     }
-    if (!existsSync43(getClientCacheDir(slug))) {
+    if (!existsSync44(getClientCacheDir(slug))) {
       const e = {
         code: "CONTEXT_CACHE_MISSING",
         message: `Cache local no encontrada para "${slug}".`,
@@ -8634,8 +8838,8 @@ async function runErrorCodes(opts = {}) {
 }
 
 // src/commands/hdu-cmd.ts
-import { existsSync as existsSync44 } from "fs";
-import { confirm as confirm4, input as input5 } from "@inquirer/prompts";
+import { existsSync as existsSync45 } from "fs";
+import { confirm as confirm5, input as input5 } from "@inquirer/prompts";
 init_hdu();
 init_dev_type();
 var isTTY11 = process.stdout.isTTY;
@@ -8652,7 +8856,7 @@ function resolveCacheDir(clientSlug) {
     };
   }
   const cacheDir = getClientCacheDir(clientSlug);
-  if (!existsSync44(cacheDir)) {
+  if (!existsSync45(cacheDir)) {
     return {
       ok: false,
       error: {
@@ -8983,7 +9187,7 @@ async function runHduApprove(hduId, opts = {}) {
             printWarn("\u26A0  Esta HDU no tiene criterios de aceptaci\xF3n con Gherkin.");
             printDim("   Sin criterios, el SPEC quedar\xE1 incompleto. Completalos con: /devflow-ia:enrich-us");
             if (!opts.yes && isTTY11) {
-              const proceed = await confirm4({ message: "\xBFAprobar igual?", default: false });
+              const proceed = await confirm5({ message: "\xBFAprobar igual?", default: false });
               if (!proceed) {
                 printInfo("Aprobaci\xF3n cancelada. Complet\xE1 los criterios primero.");
                 return 1;
@@ -9145,7 +9349,7 @@ async function runHduIndexCmd(opts = {}) {
 }
 
 // src/commands/hdu-next.ts
-import { existsSync as existsSync45 } from "fs";
+import { existsSync as existsSync46 } from "fs";
 init_hdu();
 var PRIORITY_SCORE = {
   "cr\xEDtica": 100,
@@ -9219,7 +9423,7 @@ async function runHduNext(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync45(cacheDir)) {
+  if (!existsSync46(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -9307,7 +9511,7 @@ async function runHduNext(opts = {}) {
 // src/commands/hdu-apply-merge.ts
 init_hdu();
 import { execSync as execSync10 } from "child_process";
-import { existsSync as existsSync46 } from "fs";
+import { existsSync as existsSync47 } from "fs";
 import * as path39 from "path";
 function runGit7(cmd, cwd) {
   return execSync10(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -9336,7 +9540,7 @@ function getCommitAuthorEmail(repoRoot) {
 async function runHduApplyMerge(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const repoRoot = path39.resolve(opts.path ?? process.cwd());
-  if (!existsSync46(getHdusDir(repoRoot))) {
+  if (!existsSync47(getHdusDir(repoRoot))) {
     const e = {
       code: "CONTEXT_REPO_INVALID",
       message: `No hay hdus/ en ${repoRoot}. \xBFEst\xE1s en un context repo?`,
@@ -9473,7 +9677,7 @@ Generado por dd-cli hdu apply-merge (S5-4).`;
 }
 
 // src/commands/stats-cmd.ts
-import { existsSync as existsSync47 } from "fs";
+import { existsSync as existsSync48 } from "fs";
 init_hdu();
 function parsePeriodToMs(period) {
   if (period === "all") return null;
@@ -9527,7 +9731,7 @@ async function runStats(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync47(cacheDir)) {
+  if (!existsSync48(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -9654,7 +9858,7 @@ async function runStats(opts = {}) {
 }
 
 // src/commands/sprint-cmd.ts
-import { existsSync as existsSync48 } from "fs";
+import { existsSync as existsSync49 } from "fs";
 init_sprint();
 init_hdu();
 function resolveCacheDir2(slug) {
@@ -9666,7 +9870,7 @@ function resolveCacheDir2(slug) {
     return { ok: false, err: { code: "CLIENT_NOT_REGISTERED", message: `Cliente "${slug}" no registrado.` } };
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync48(cacheDir)) {
+  if (!existsSync49(cacheDir)) {
     return { ok: false, err: { code: "CONTEXT_CACHE_MISSING", message: `Cache local no encontrada para "${slug}".` } };
   }
   return { ok: true, cacheDir, slug };
@@ -9982,7 +10186,7 @@ async function runSprintBurndown(opts = {}) {
 }
 
 // src/commands/guide-cmd.ts
-import { existsSync as existsSync49, readFileSync as readFileSync29 } from "fs";
+import { existsSync as existsSync50, readFileSync as readFileSync30 } from "fs";
 import { spawnSync } from "child_process";
 import * as path40 from "path";
 import { fileURLToPath as fileURLToPath6 } from "url";
@@ -9990,7 +10194,9 @@ var TOPICS = {
   "hdu": "guia-hdu-flow.md",
   "hdus": "guia-hdu-flow.md",
   "onboarding": "guia-empresa.md",
-  "dev": "guia-dev-cli.md"
+  "dev": "guia-dev-cli.md",
+  "roles": "guia-flujo-roles.md",
+  "rol": "guia-flujo-roles.md"
 };
 function resolveDocsPath(filename) {
   try {
@@ -10001,7 +10207,7 @@ function resolveDocsPath(filename) {
       path40.resolve(here, "../../../docs", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync49(c3)) return c3;
+      if (existsSync50(c3)) return c3;
     }
   } catch {
   }
@@ -10055,7 +10261,7 @@ async function runGuide(topic, opts = {}) {
     spawnSync("less", ["-R", docPath], { stdio: "inherit" });
     return 0;
   }
-  const content = readFileSync29(docPath, "utf-8");
+  const content = readFileSync30(docPath, "utf-8");
   process.stdout.write(content);
   if (!process.stdout.isTTY) return 0;
   console.log("");
@@ -10139,7 +10345,7 @@ async function runToday(opts = {}) {
 }
 
 // src/commands/inbox-cmd.ts
-import { existsSync as existsSync50, mkdirSync as mkdirSync25, readFileSync as readFileSync30, appendFileSync as appendFileSync5, writeFileSync as writeFileSync23 } from "fs";
+import { existsSync as existsSync51, mkdirSync as mkdirSync25, readFileSync as readFileSync31, appendFileSync as appendFileSync5, writeFileSync as writeFileSync24 } from "fs";
 import * as path41 from "path";
 import { z as z12 } from "zod";
 var InboxEventSchema = z12.object({
@@ -10157,8 +10363,8 @@ function getInboxPath() {
 }
 function readInbox() {
   const p = getInboxPath();
-  if (!existsSync50(p)) return [];
-  return readFileSync30(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+  if (!existsSync51(p)) return [];
+  return readFileSync31(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
     try {
       return InboxEventSchema.parse(JSON.parse(l));
     } catch {
@@ -10169,14 +10375,14 @@ function readInbox() {
 function writeInbox(events) {
   const p = getInboxPath();
   const dir = path41.dirname(p);
-  if (!existsSync50(dir)) mkdirSync25(dir, { recursive: true });
+  if (!existsSync51(dir)) mkdirSync25(dir, { recursive: true });
   const content = events.map((e) => JSON.stringify(InboxEventSchema.parse(e))).join("\n") + "\n";
-  writeFileSync23(p, content, "utf-8");
+  writeFileSync24(p, content, "utf-8");
 }
 function appendInboxEvent(event) {
   const p = getInboxPath();
   const dir = path41.dirname(p);
-  if (!existsSync50(dir)) mkdirSync25(dir, { recursive: true });
+  if (!existsSync51(dir)) mkdirSync25(dir, { recursive: true });
   const full = InboxEventSchema.parse({
     ts: event.ts ?? (/* @__PURE__ */ new Date()).toISOString(),
     read: event.read ?? false,
@@ -10299,8 +10505,8 @@ async function runInboxAdd(opts = {}) {
 }
 
 // src/commands/telemetry-cmd.ts
-import { existsSync as existsSync51, statSync as statSync8, unlinkSync } from "fs";
-import { confirm as confirm5 } from "@inquirer/prompts";
+import { existsSync as existsSync52, statSync as statSync8, unlinkSync } from "fs";
+import { confirm as confirm6 } from "@inquirer/prompts";
 var isTTY12 = process.stdout.isTTY;
 async function runTelemetryEnable(opts = {}) {
   const jsonMode = isJsonMode(opts);
@@ -10351,7 +10557,7 @@ async function runTelemetryStatus(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const config = loadTelemetryConfig();
   const eventsPath = getTelemetryEventsPath();
-  const eventsExists = existsSync51(eventsPath);
+  const eventsExists = existsSync52(eventsPath);
   const fileSize = eventsExists ? statSync8(eventsPath).size : 0;
   const events = eventsExists ? readTelemetryEvents() : [];
   if (jsonMode) {
@@ -10440,13 +10646,13 @@ async function runTelemetryReport(opts = {}) {
 async function runTelemetryPurge(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const p = getTelemetryEventsPath();
-  if (!existsSync51(p)) {
+  if (!existsSync52(p)) {
     if (jsonMode) emitJson(jsonSuccess("telemetry purge", { purged: false, reason: "no events file" }));
     printDim("No hay archivo de eventos para borrar.");
     return 0;
   }
   if (!opts.yes && isTTY12) {
-    const confirmed = await confirm5({
+    const confirmed = await confirm6({
       message: `Borrar todos los eventos de telemetr\xEDa en ${p}?`,
       default: false
     });
@@ -11012,6 +11218,14 @@ program.command("reclassify").description("Cambia el dev_type de la sesi\xF3n ac
 program.command("doctor").description("Verifica el entorno y las precondiciones del tipo activo").option("--for <tipo>", "Verificar precondiciones de un tipo espec\xEDfico (hipot\xE9tico)").action((opts) => {
   try {
     process.exit(runDoctorCmd({ forType: opts.for }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("session-repair").description("Repara .devflow/session.json cuando no cumple el schema (ej. dev_type_source inv\xE1lido)").option("--yes", "Aplica la reparaci\xF3n sin pedir confirmaci\xF3n", false).action(async (opts) => {
+  try {
+    process.exit(await runSessionRepairCmd({ yes: opts.yes }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

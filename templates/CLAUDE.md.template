@@ -11,11 +11,12 @@ Al iniciar una conversación en este proyecto, haz lo siguiente:
 2. Si **no hay sesión activa** (`started_at` es null o el archivo no existe):
    Dile al usuario:
    > 👋 Bienvenido a este proyecto DevFlow IA.
-   > Para empezar, ejecuta en tu terminal:
-   > ```
-   > dd-cli start-session <HDU-id>
-   > ```
-   > Cuando tengas la sesión activa, volvemos a este chat y continuamos.
+   > Para empezar, invocá: `/devflow-ia:start-work`
+   Y ejecutá esa skill vos mismo a continuación — es el punto de entrada único:
+   detecta si falta registrar el cliente en esta máquina, conectar este repo,
+   o elegir HDU, y te lleva de la mano hasta `dd-cli start-session`. No le pidas
+   al usuario que tipee `dd-cli start-session <HDU-id>` directo — esa skill ya
+   lo hace en el momento correcto, con la HDU y el cliente correctos.
 
 3. Si **hay sesión activa** (`started_at` definido, `ended_at` null):
    Dile al usuario:
@@ -81,6 +82,7 @@ DEVFLOW_URL: null
 ```bash
 dd-cli status          # ¿Dónde estoy en el flujo?
 dd-cli next            # ¿Qué tipeo ahora?
-dd-cli help            # Comandos útiles según el estado actual
+dd-cli help-ctx --all  # Skills por rol, en orden de flujo
+dd-cli watch           # Barra de estado en vivo (otro pane)
 dd-cli end-session     # Cerrar sesión al terminar el día
 ```

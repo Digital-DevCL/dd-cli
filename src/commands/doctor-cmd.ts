@@ -61,6 +61,7 @@ export function runDoctorCmd(opts: DoctorCmdOptions = {}): number {
   } catch (e) {
     if (e instanceof SessionIOError) {
       printErr(e.message);
+      printDim(`  Intenta reparar con: dd-cli session-repair`);
       return 2;
     }
     throw e;
