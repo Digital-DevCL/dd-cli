@@ -11,10 +11,26 @@
  */
 import { confirm } from '@inquirer/prompts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { SessionStateSchema } from '../types/session.js';
+import { SessionStateSchema, DevTypeSourceSchema } from '../types/session.js';
 import { getSessionPath } from '../utils/paths.js';
 import { getProjectRoot } from '../utils/paths.js';
 import { printOk, printWarn, printErr, printInfo, printDim, bold } from '../utils/output.js';
+
+/**
+ * El valor inválido casi siempre ya contiene la respuesta correcta como
+ * substring (ej. "tech-lead-reclassify" → "reclassify", escrito a mano por
+ * alguien describiendo qué pasó en vez de usar el valor exacto del enum).
+ * Priorizar esa señal sobre heurísticos indirectos como dev_type_locked,
+ * que puede no reflejar lo que realmente ocurrió (bug reportado: sesión
+ * reclasificada con dev_type_locked: false, el heurístico viejo caía a
+ * 'business-brief' e ignoraba el propio string y el rationale).
+ */
+function guessDevTypeSource(raw: Record<string, unknown>): string {
+  const rawValue = String(raw.dev_type_source ?? '').toLowerCase();
+  const matched = DevTypeSourceSchema.options.find((v) => rawValue.includes(v));
+  if (matched) return matched;
+  return raw.dev_type_locked === true ? 'reclassify' : 'business-brief';
+}
 
 export interface SessionRepairCmdOptions {
   yes?: boolean;
@@ -66,7 +82,7 @@ export async function runSessionRepairCmd(
 
     if (field === 'dev_type_source' && issue.code === 'invalid_enum_value') {
       const before = raw.dev_type_source;
-      const after = raw.dev_type_locked === true ? 'reclassify' : 'business-brief';
+      const after = guessDevTypeSource(raw);
       patched.dev_type_source = after;
       applied.push({ field, before, after });
       continue;

@@ -5274,6 +5274,12 @@ function humanizeRuleId(technicalMsg) {
 // src/commands/session-repair-cmd.ts
 import { confirm as confirm2 } from "@inquirer/prompts";
 import { existsSync as existsSync28, readFileSync as readFileSync21, writeFileSync as writeFileSync16 } from "fs";
+function guessDevTypeSource(raw) {
+  const rawValue = String(raw.dev_type_source ?? "").toLowerCase();
+  const matched = DevTypeSourceSchema.options.find((v) => rawValue.includes(v));
+  if (matched) return matched;
+  return raw.dev_type_locked === true ? "reclassify" : "business-brief";
+}
 async function runSessionRepairCmd(opts = {}) {
   const projectRoot = getProjectRoot();
   const sessionPath = getSessionPath(projectRoot);
@@ -5312,7 +5318,7 @@ session.json no cumple el schema \u2014 diagnosticando...
     const field = issue.path.join(".");
     if (field === "dev_type_source" && issue.code === "invalid_enum_value") {
       const before = raw.dev_type_source;
-      const after = raw.dev_type_locked === true ? "reclassify" : "business-brief";
+      const after = guessDevTypeSource(raw);
       patched.dev_type_source = after;
       applied.push({ field, before, after });
       continue;

@@ -51,6 +51,22 @@ describe('session-repair-cmd', () => {
     expect(existsSync(`${getSessionPath(dir)}.bak`)).toBe(true);
   });
 
+  it('repara "tech-lead-reclassify" a "reclassify" aunque dev_type_locked sea false (bug reportado en IPRSA)', async () => {
+    const broken = {
+      ...createInitialSession('0.9.1'),
+      dev_type_locked: false, // la sesión real no quedó lockeada, pero SÍ fue reclasificada
+      dev_type_rationale: 'Reclasificado: confusión inicial por mockups existentes, reclasificado por el tech lead',
+      dev_type_source: 'tech-lead-reclassify',
+    };
+    writeFileSync(getSessionPath(dir), JSON.stringify(broken), 'utf-8');
+
+    const exitCode = await runInDir(dir, () => runSessionRepairCmd({ yes: true }));
+    expect(exitCode).toBe(0);
+
+    const repaired = JSON.parse(readFileSync(getSessionPath(dir), 'utf-8'));
+    expect(repaired.dev_type_source).toBe('reclassify');
+  });
+
   it('repara dev_type_source inválido sin lock a "business-brief"', async () => {
     const broken = {
       ...createInitialSession('0.9.0'),
